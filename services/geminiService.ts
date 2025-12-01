@@ -2,7 +2,8 @@ import { GoogleGenAI } from "@google/genai";
 import { HumanizerVariant } from "../types";
 
 // NOTE: In a production app, the key should come from a secure backend proxy.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Lazily initialize to ensure process.env is available and prevent crash on module load.
+const getAi = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const GeminiService = {
   /**
@@ -10,6 +11,7 @@ export const GeminiService = {
    */
   async chat(history: { role: string; parts: { text?: string; inlineData?: any }[] }[], message: string, imageBase64?: string): Promise<string> {
     try {
+      const ai = getAi();
       // If there is an image, we can't easily use the chat history object in the same way 
       // with the @google/genai SDK strictly for the current turn if we mix create() and sendMessage().
       // However, to keep it simple and stateless for the "current turn" with image:
@@ -68,7 +70,7 @@ export const GeminiService = {
 
     } catch (error) {
       console.error("Gemini Chat Error:", error);
-      return "Erro ao conectar ao servidor de IA. Verifique sua conexão.";
+      return "Erro ao conectar ao servidor de IA. Verifique sua conexão e a chave de API.";
     }
   },
 
@@ -77,6 +79,7 @@ export const GeminiService = {
    */
   async generateDocument(topic: string, imageBase64?: string): Promise<string> {
     try {
+      const ai = getAi();
       const prompt = `
         Crie um trabalho académico completo sobre o tema: "${topic}".
         ${imageBase64 ? 'Use a imagem fornecida como contexto principal ou referência para o trabalho.' : ''}
@@ -126,6 +129,7 @@ export const GeminiService = {
    */
   async humanizeText(text: string, variant: HumanizerVariant): Promise<string> {
     try {
+      const ai = getAi();
       const prompt = `
         Aja como um falante nativo de ${variant}.
         Reescreva o texto abaixo para torná-lo mais natural, humano e fluido, removendo qualquer traço de linguagem robótica, repetitiva ou artificial.
