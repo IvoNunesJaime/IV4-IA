@@ -5,7 +5,6 @@ const API_ENDPOINT = '/api/generate';
 
 /**
  * Generic helper to send requests to your Vercel backend.
- * This replaces the direct GoogleGenAI client instantiation.
  */
 async function callBackend(payload: any): Promise<string> {
   try {
@@ -18,14 +17,21 @@ async function callBackend(payload: any): Promise<string> {
     });
 
     if (!response.ok) {
-      console.error(`Backend Error: ${response.status}`);
-      throw new Error("Falha na comunicação com o servidor.");
+      let errorMsg = `Erro ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMsg = errorData.error || errorMsg;
+      } catch (e) {
+        const text = await response.text();
+        if (text) errorMsg = text;
+      }
+      console.error(`Backend Error (${response.status}):`, errorMsg);
+      throw new Error(errorMsg);
     }
 
     const data = await response.json();
-    // Assuming your backend returns { text: "..." } or { output: "..." }
     return data.text || data.output || "";
-  } catch (error) {
+  } catch (error: any) {
     console.error("Service Request Failed:", error);
     throw error;
   }
@@ -34,7 +40,6 @@ async function callBackend(payload: any): Promise<string> {
 export const GeminiService = {
   /**
    * Chat with the AI, supporting text and images.
-   * Sends history and message to backend for processing.
    */
   async chat(history: { role: string; parts: { text?: string; inlineData?: any }[] }[], message: string, imageBase64?: string): Promise<string> {
     try {
@@ -47,14 +52,14 @@ export const GeminiService = {
         image: imageBase64,
         systemInstruction: systemInstruction
       });
-    } catch (error) {
-      return "Erro ao conectar ao servidor. Tente novamente.";
+    } catch (error: any) {
+      // Retorna a mensagem de erro real para o chat
+      return `Erro do Sistema: ${error.message || "Falha ao conectar ao servidor."}`;
     }
   },
 
   /**
    * Analyzes the conversation to extract document metadata.
-   * Constructs the prompt here but sends it to backend for secure execution.
    */
   async negotiateDocumentDetails(history: { role: string; text: string }[], currentMessage: string): Promise<{ 
       reply: string; 
@@ -103,18 +108,19 @@ export const GeminiService = {
             }
         `;
 
-        // Send to backend with 'json' mode flag
         const jsonText = await callBackend({
             action: 'generate',
             prompt: prompt,
             jsonMode: true 
         });
 
-        return JSON.parse(jsonText || "{}");
+        // Tenta limpar markdown caso o modelo envie ```json ... ```
+        const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(cleanJson || "{}");
     } catch (error) {
         console.error("Negotiation Error:", error);
         return { 
-            reply: "Desculpe, não entendi. Pode repetir os detalhes do trabalho?", 
+            reply: "Desculpe, ocorreu um erro de conexão. Verifique a internet e tente novamente.", 
             extractedData: {}, 
             isReady: false 
         };
@@ -123,11 +129,9 @@ export const GeminiService = {
 
   /**
    * Generate a full academic document structure.
-   * Constructs the HTML prompt locally and sends to backend.
    */
   async generateDocument(data: any, addBorder: boolean = true): Promise<string> {
     try {
-      // Determine Total Pages requested (Default 8 if not specified, min 5)
       const targetPages = data.pageCount ? Math.max(5, data.pageCount) : 8;
       const includeContraCapa = data.includeContraCapa === true;
 
@@ -163,26 +167,22 @@ export const GeminiService = {
 
         <!-- PÁGINA 1: CAPA -->
         <div class="page" style="page-break-after: always; display: flex; align-items: center; justify-content: center;">
-           <!-- Esquadria Container: Ajustado para margens A4 -->
            <div style="width: 100%; height: 100%; border: 4px double #000; padding: 40px 20px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; text-align: center;">
               <div>
                   <h3 style="margin:0; font-weight:bold; font-size: 14pt;">REPÚBLICA DE MOÇAMBIQUE</h3>
                   <h4 style="margin:5px 0; font-weight:bold; font-size: 12pt;">MINISTÉRIO DA EDUCAÇÃO E DESENVOLVIMENTO HUMANO</h4>
                   <h2 style="margin:30px 0; font-weight:bold; text-transform: uppercase; font-size: 16pt;">${data.school || 'ESCOLA SECUNDÁRIA'}</h2>
               </div>
-              
               <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
                   <h1 style="font-size: 26pt; font-weight: bold; margin-bottom: 20px;">${data.theme || 'TEMA DO TRABALHO'}</h1>
                   <h3 style="font-size: 14pt; font-weight: normal;">Disciplina: ${data.subject || ''}</h3>
               </div>
-
               <div style="text-align: center; width: 100%; margin-bottom: 40px;">
                  <p style="margin:5px; font-size: 12pt;"><strong>Discente:</strong> ${data.student || 'Nome do Aluno'}</p>
                  <p style="margin:5px; font-size: 12pt;">${data.grade ? data.grade : ''} ${data.class ? data.class : ''}</p>
                  <br>
                  <p style="margin:5px; font-size: 12pt;"><strong>Docente:</strong> ${data.teacher || 'Nome do Docente'}</p>
               </div>
-
               <div>
                   <p style="font-weight: bold;">Lichinga</p>
                   <p style="font-weight: bold;">${new Date().getFullYear()}</p>
@@ -196,16 +196,12 @@ export const GeminiService = {
              <div>
                   <h2 style="margin:0; font-weight:bold; text-transform: uppercase; font-size: 14pt;">${data.student || 'Nome do Aluno'}</h2>
              </div>
-
              <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
                   <h1 style="font-size: 20pt; font-weight: bold; margin-bottom: 40px;">${data.theme || 'TEMA DO TRABALHO'}</h1>
-                  
-                  <!-- Bloco de texto alinhado à direita padrão académico MZ -->
                   <div style="width: 60%; margin-left: 40%; text-align: justify; font-size: 11pt;">
                     <p>Trabalho de carácter avaliativo a ser entregue na ${data.school || 'Escola'}, na disciplina de ${data.subject || '...'}, leccionada pelo docente ${data.teacher || '...'}.</p>
                   </div>
              </div>
-
              <div>
                   <p style="font-weight: bold;">Lichinga</p>
                   <p style="font-weight: bold;">${new Date().getFullYear()}</p>
@@ -222,7 +218,6 @@ export const GeminiService = {
                     <span style="flex-grow: 1; border-bottom: 2px dotted #000; margin: 0 5px;"></span>
                     <span>${includeContraCapa ? '4' : '3'}</span>
                 </div>
-                <!-- Gere mais itens de índice baseados no desenvolvimento -->
                 <div style="display: flex; align-items: baseline; margin-bottom: 10px;">
                     <span style="font-weight: bold;">2. Desenvolvimento</span>
                     <span style="flex-grow: 1; border-bottom: 2px dotted #000; margin: 0 5px;"></span>
@@ -244,20 +239,16 @@ export const GeminiService = {
         <!-- PÁGINA DE INTRODUÇÃO -->
         <div class="page" style="page-break-after: always; padding: 3cm 2.5cm;">
             <h2 style="margin-bottom: 20px; text-transform: uppercase; border-bottom: 1px solid #ccc; padding-bottom: 10px;">1. Introdução</h2>
-            <p style="text-align: justify; line-height: 1.5; margin-bottom: 15px;">[Gere texto de introdução...]</p>
-            <p style="text-align: justify; line-height: 1.5; margin-bottom: 15px;">[Gere texto de objetivos...]</p>
-            <p style="text-align: justify; line-height: 1.5;">[Gere texto de metodologia...]</p>
+            <p style="text-align: justify; line-height: 1.5;">[Gere texto de introdução...]</p>
         </div>
 
-        <!-- PÁGINAS DE DESENVOLVIMENTO (Gere ${targetPages - 4} páginas de conteúdo denso) -->
+        <!-- PÁGINAS DE DESENVOLVIMENTO -->
         <div class="page" style="page-break-after: always; padding: 3cm 2.5cm;">
             <h2 style="margin-bottom: 20px; text-transform: uppercase; border-bottom: 1px solid #ccc; padding-bottom: 10px;">2. Desenvolvimento</h2>
             <div style="text-align: justify; line-height: 1.5;">
-                <p>[Gere muito conteúdo detalhado aqui...]</p>
+                <p>[Gere muito conteúdo detalhado aqui para preencher as páginas...]</p>
             </div>
         </div>
-        
-        <!-- INSTRUÇÃO AO MODELO: REPITA a div class="page" acima com mais conteúdo se necessário para atingir ${targetPages} páginas totais. Não faça tudo numa só página. Quebre em várias divs se o texto for longo. -->
 
         <!-- PÁGINA DE CONCLUSÃO -->
         <div class="page" style="page-break-after: always; padding: 3cm 2.5cm;">
@@ -279,9 +270,7 @@ export const GeminiService = {
         prompt: promptText
       });
       
-      // Sanitize: Remove markdown code blocks if AI ignores instructions
       text = text.replace(/```html/g, '').replace(/```/g, '');
-
       return text;
     } catch (error) {
       console.error("Gemini Document Error:", error);
