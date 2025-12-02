@@ -1,29 +1,62 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Removemos 'runtime: edge' para usar o ambiente Node.js padrão da Vercel,
-// que é mais estável para processamento de chaves de API e conexões de rede.
+// Usamos a assinatura padrão de função Serverless da Vercel (Node.js)
+// Isso evita erros de parsing de corpo (req.json) que ocorrem frequentemente.
+export default async function handler(req: any, res: any) {
+  // 1. Configurar CORS (Permitir que seu frontend fale com este backend)
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
 
-export default async function handler(req: Request) {
+  // Lidar com requisição OPTIONS (Pre-flight do navegador)
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  // Apenas aceitar POST
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: { 'Content-Type': 'application/json' } });
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
   }
 
   try {
-    const { action, prompt, history, message, image, systemInstruction, jsonMode } = await req.json();
-    
-    // Na Vercel, a variável correta é process.env.GEMINI_API_KEY
-    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    // 2. Extração segura do corpo da requisição
+    // Na Vercel (Node.js), req.body já vem parseado se o Content-Type for application/json
+    const { action, prompt, history, message, image, systemInstruction, jsonMode } = req.body;
 
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: 'Erro de Configuração: API Key não encontrada no servidor.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    // 3. Verificação Robusta da API Key
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    // LOG DE DEPURAÇÃO (Visível no Dashboard da Vercel em Functions > Logs)
+    // Não mostramos a chave inteira por segurança, apenas os 4 primeiros dígitos
+    if (apiKey) {
+      console.log(`[API] Chave encontrada: ${apiKey.substring(0, 4)}...`);
+    } else {
+      console.error("[API] ERRO CRÍTICO: GEMINI_API_KEY não encontrada nas variáveis de ambiente.");
     }
 
+    if (!apiKey) {
+      // Retorna erro 500 claro se a chave faltar
+      res.status(500).json({ 
+        error: 'Erro de Configuração no Servidor: A chave de API (GEMINI_API_KEY) não está configurada ou não foi carregada.' 
+      });
+      return;
+    }
+
+    // 4. Inicialização do Cliente Gemini
     const ai = new GoogleGenAI({ apiKey });
 
-    // --- AÇÃO: CHAT ---
+    // --- LÓGICA DO GEMINI ---
+
+    // AÇÃO: CHAT
     if (action === 'chat') {
       const chat = ai.chats.create({
-        model: "gemini-2.5-flash", // Modelo atualizado
+        model: "gemini-2.5-flash",
         config: {
           systemInstruction: systemInstruction,
         },
@@ -33,8 +66,7 @@ export default async function handler(req: Request) {
       let responseText = "";
 
       if (image) {
-        // Envio com Imagem
-        // O formato da imagem deve ser limpo para o SDK (removemos o prefixo data:image...)
+        // Tratamento de imagem base64
         const base64Data = image.split(',')[1]; 
         const mimeType = image.split(';')[0].split(':')[1];
 
@@ -51,17 +83,17 @@ export default async function handler(req: Request) {
         });
         responseText = response.text || "";
       } else {
-        // Envio apenas Texto
         const response = await chat.sendMessage({
           message: message
         });
         responseText = response.text || "";
       }
       
-      return new Response(JSON.stringify({ text: responseText }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      res.status(200).json({ text: responseText });
+      return;
     }
 
-    // --- AÇÃO: GENERATE (Texto Único / JSON) ---
+    // AÇÃO: GENERATE (Texto Único / JSON)
     if (action === 'generate') {
       const config: any = {};
       
@@ -70,20 +102,23 @@ export default async function handler(req: Request) {
       }
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash", // Modelo atualizado
+        model: "gemini-2.5-flash",
         contents: prompt,
         config: config
       });
 
       const responseText = response.text || "";
       
-      return new Response(JSON.stringify({ text: responseText }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      res.status(200).json({ text: responseText });
+      return;
     }
 
-    return new Response(JSON.stringify({ error: 'Ação desconhecida enviada ao servidor.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    // Se a ação não for reconhecida
+    res.status(400).json({ error: 'Ação desconhecida enviada ao servidor.' });
 
   } catch (error: any) {
-    console.error("API Route Error:", error);
-    return new Response(JSON.stringify({ error: `Erro interno: ${error.message}` }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    console.error("Erro na API Route:", error);
+    // Retorna a mensagem de erro real para ajudar no diagnóstico
+    res.status(500).json({ error: `Erro interno do servidor: ${error.message}` });
   }
 }
