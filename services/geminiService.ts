@@ -20,6 +20,7 @@ async function callBackend(payload: any): Promise<string> {
       let errorMsg = `Erro ${response.status}`;
       try {
         const errorData = await response.json();
+        // Usa a mensagem de erro detalhada do backend se disponível
         errorMsg = errorData.error || errorMsg;
       } catch (e) {
         const text = await response.text();
@@ -53,8 +54,9 @@ export const GeminiService = {
         systemInstruction: systemInstruction
       });
     } catch (error: any) {
-      // Retorna a mensagem de erro real para o chat
-      return `Erro do Sistema: ${error.message || "Falha ao conectar ao servidor."}`;
+      // Retorna a mensagem de erro real para o chat para que o usuário saiba o que aconteceu
+      console.error("Chat Error:", error);
+      throw new Error(error.message || "Falha ao conectar ao servidor.");
     }
   },
 

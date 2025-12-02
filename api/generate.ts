@@ -1,9 +1,16 @@
 import { GoogleGenAI } from "@google/genai";
 
-// Usamos a assinatura padrão de função Serverless da Vercel (Node.js)
-// Isso evita erros de parsing de corpo (req.json) que ocorrem frequentemente.
+// Configuração para garantir que o corpo seja processado corretamente
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '4mb',
+    },
+  },
+};
+
 export default async function handler(req: any, res: any) {
-  // 1. Configurar CORS (Permitir que seu frontend fale com este backend)
+  // 1. Configurar CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -12,13 +19,11 @@ export default async function handler(req: any, res: any) {
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
   );
 
-  // Lidar com requisição OPTIONS (Pre-flight do navegador)
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
-  // Apenas aceitar POST
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
@@ -26,34 +31,42 @@ export default async function handler(req: any, res: any) {
 
   try {
     // 2. Extração segura do corpo da requisição
-    // Na Vercel (Node.js), req.body já vem parseado se o Content-Type for application/json
-    const { action, prompt, history, message, image, systemInstruction, jsonMode } = req.body;
-
-    // 3. Verificação Robusta da API Key
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    // LOG DE DEPURAÇÃO (Visível no Dashboard da Vercel em Functions > Logs)
-    // Não mostramos a chave inteira por segurança, apenas os 4 primeiros dígitos
-    if (apiKey) {
-      console.log(`[API] Chave encontrada: ${apiKey.substring(0, 4)}...`);
-    } else {
-      console.error("[API] ERRO CRÍTICO: GEMINI_API_KEY não encontrada nas variáveis de ambiente.");
+    let body = req.body;
+    
+    // Fallback: Se o body chegar como string (alguns ambientes serverless), fazemos o parse
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        console.error("Erro ao fazer parse do body JSON:", e);
+        res.status(400).json({ error: 'Payload JSON inválido.' });
+        return;
+      }
     }
 
+    const { action, prompt, history, message, image, systemInstruction, jsonMode } = body || {};
+
+    // 3. Verificação Robusta da API Key
+    // IMPORTANTE: O nome deve corresponder EXATAMENTE ao configurado na Vercel
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    // Log de segurança para depuração (mostra apenas se existe ou não)
     if (!apiKey) {
-      // Retorna erro 500 claro se a chave faltar
+      console.error("[API ERROR] GEMINI_API_KEY não encontrada nas variáveis de ambiente.");
       res.status(500).json({ 
-        error: 'Erro de Configuração no Servidor: A chave de API (GEMINI_API_KEY) não está configurada ou não foi carregada.' 
+        error: 'Configuração de Servidor: GEMINI_API_KEY não encontrada. Verifique as Variáveis de Ambiente na Vercel.' 
       });
       return;
+    } else {
+      console.log(`[API SUCCESS] GEMINI_API_KEY carregada. (Inicia com: ${apiKey.substring(0, 4)}...)`);
     }
 
     // 4. Inicialização do Cliente Gemini
     const ai = new GoogleGenAI({ apiKey });
 
-    // --- LÓGICA DO GEMINI ---
+    // --- ROTEAMENTO DE AÇÕES ---
 
-    // AÇÃO: CHAT
+    // Ação: CHAT (Conversa contínua)
     if (action === 'chat') {
       const chat = ai.chats.create({
         model: "gemini-2.5-flash",
@@ -66,9 +79,12 @@ export default async function handler(req: any, res: any) {
       let responseText = "";
 
       if (image) {
-        // Tratamento de imagem base64
-        const base64Data = image.split(',')[1]; 
-        const mimeType = image.split(';')[0].split(':')[1];
+        // Se houver imagem, precisamos extrair o base64
+        // Formato esperado: "data:image/png;base64,..."
+        const parts = image.split(',');
+        const base64Data = parts[1] || parts[0]; 
+        const mimeMatch = image.match(/:(.*?);/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
 
         const response = await chat.sendMessage({
           message: [
@@ -93,7 +109,7 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    // AÇÃO: GENERATE (Texto Único / JSON)
+    // Ação: GENERATE (Geração de texto único ou JSON)
     if (action === 'generate') {
       const config: any = {};
       
@@ -113,12 +129,14 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    // Se a ação não for reconhecida
-    res.status(400).json({ error: 'Ação desconhecida enviada ao servidor.' });
+    // Se nenhuma ação válida for encontrada
+    res.status(400).json({ error: 'Ação inválida ou não fornecida (esperado "chat" ou "generate").' });
 
   } catch (error: any) {
-    console.error("Erro na API Route:", error);
-    // Retorna a mensagem de erro real para ajudar no diagnóstico
-    res.status(500).json({ error: `Erro interno do servidor: ${error.message}` });
+    console.error("Erro CRÍTICO na API Route:", error);
+    // Retorna o erro detalhado para facilitar a correção
+    res.status(500).json({ 
+      error: `Erro no processamento da IA: ${error.message || error.toString()}` 
+    });
   }
 }
