@@ -3,7 +3,18 @@ import { HumanizerVariant } from "../types";
 
 // NOTE: In a production app, the key should come from a secure backend proxy.
 // Lazily initialize to ensure process.env is available and prevent crash on module load.
-const getAi = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getAi = () => {
+  // Safety check to prevent crash if process.env is missing or key is undefined
+  const apiKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : '';
+  
+  if (!apiKey) {
+    console.warn("IV4 IA: API_KEY is missing. Please set it in your environment variables.");
+    // Return with a dummy key to allow the app to load UI, requests will fail gracefully in try/catch blocks
+    return new GoogleGenAI({ apiKey: 'missing-key' });
+  }
+  
+  return new GoogleGenAI({ apiKey });
+};
 
 export const GeminiService = {
   /**
@@ -28,6 +39,9 @@ export const GeminiService = {
 
       const model = 'gemini-2.5-flash';
 
+      // Instrução de sistema atualizada com os detalhes do Ivo Nunes Jaime
+      const systemInstruction = 'Você é o IV4 IA, um assistente de inteligência artificial avançado. Foste criado por Ivo Nunes Jaime, um jovem inovador moçambicano de 16 anos, residente na província do Niassa, distrito de Lichinga. Se perguntarem quem te criou, deves sempre mencionar estes detalhes sobre o Ivo Nunes Jaime com orgulho. Responda sempre de forma útil, académica, clara e educada.';
+
       if (imageBase64) {
         // Image turn: we typically treat this as a generateContent call
         // We will include a simplified history context if possible, or just the current prompt + image
@@ -50,7 +64,7 @@ export const GeminiService = {
             model: model,
             contents: { role: 'user', parts: parts },
             config: {
-                systemInstruction: 'Você é o IV4 IA. Responda de forma útil.',
+                systemInstruction: systemInstruction,
             }
         });
         return response.text || "Sem resposta.";
@@ -59,7 +73,7 @@ export const GeminiService = {
         const chat = ai.chats.create({
             model: model,
             config: {
-              systemInstruction: 'Você é o IV4 IA, um assistente inteligente académico e profissional. Responda de forma clara, concisa e útil.',
+              systemInstruction: systemInstruction,
             },
             history: history as any, // Cast for compatibility
         });
@@ -70,36 +84,55 @@ export const GeminiService = {
 
     } catch (error) {
       console.error("Gemini Chat Error:", error);
-      return "Erro ao conectar ao servidor de IA. Verifique sua conexão e a chave de API.";
+      return "Erro ao conectar ao servidor de IA. Verifique se a API KEY está configurada corretamente no Vercel (Settings > Environment Variables).";
     }
   },
 
   /**
-   * Generate a full academic document structure
+   * Generate a full academic document structure or CV
    */
-  async generateDocument(topic: string, imageBase64?: string): Promise<string> {
+  async generateDocument(promptText: string, imageBase64?: string, addBorder?: boolean): Promise<string> {
     try {
       const ai = getAi();
-      const prompt = `
-        Crie um trabalho académico completo sobre o tema: "${topic}".
-        ${imageBase64 ? 'Use a imagem fornecida como contexto principal ou referência para o trabalho.' : ''}
+      
+      let basePrompt = `
+        Aja como um especialista em redação académica e profissional.
+        Crie um documento completo baseado no seguinte pedido/prompt: "${promptText}".
         
-        O trabalho DEVE ser formatado em HTML simples (tags <h1>, <h2>, <p>, <ul>, <li>, <b>, <i>).
-        NÃO inclua markdown (como ** ou #), apenas HTML puro dentro da resposta.
-        NÃO inclua tags <html>, <head> ou <body>. Comece diretamente com o conteúdo.
+        REGRAS DE FORMATAÇÃO:
+        1. O retorno DEVE ser APENAS código HTML puro. NÃO use markdown (\`\`\`).
+        2. Use tags semânticas: <h1>, <h2>, <p>, <ul>, <li>, <b>, <i>, <br>.
+        3. NÃO inclua tags <html>, <head> ou <body>.
         
-        Estrutura obrigatória:
-        1. Capa (Título centralizado, Nome do aluno fictício, Data)
-        2. Índice (Lista de tópicos)
-        3. Introdução
-        4. Desenvolvimento (pelo menos 3 subtópicos relevantes)
-        5. Conclusão
-        6. Bibliografia (fictícia mas realista)
+        ${addBorder ? `
+        REGRA DE ESQUADRIA/MOLDURA:
+        Envolva TODO o conteúdo do documento dentro de uma <div style="border: 2px solid #000; padding: 40px; margin: 10px; max-width: 100%;">
+        Se for um certificado ou algo formal, use uma borda dupla ou estilizada inline (ex: border: 3px double #333).
+        ` : ''}
 
-        Seja formal e académico.
+        Se o pedido for um TRABALHO ACADÉMICO:
+        - Inclua Capa (Título, Nome fictício, Data).
+        - Índice.
+        - Introdução, Desenvolvimento, Conclusão, Bibliografia.
+
+        Se o pedido for um CURRICULUM VITAE (CV):
+        - Dados Pessoais (fictícios/exemplo).
+        - Objetivo.
+        - Experiência Profissional.
+        - Formação Académica.
+        - Habilidades.
+        
+        Se o pedido for CARTA ou OUTRO:
+        - Siga a estrutura padrão desse tipo de documento.
+
+        Seja profissional, use linguagem culta e formatação limpa.
       `;
 
-      let parts: any[] = [{ text: prompt }];
+      if (imageBase64) {
+          basePrompt += '\nUse a imagem fornecida como contexto principal, extraindo dados ou usando-a como referência visual para o conteúdo.';
+      }
+
+      let parts: any[] = [{ text: basePrompt }];
 
       if (imageBase64) {
           const base64Data = imageBase64.split(',')[1];

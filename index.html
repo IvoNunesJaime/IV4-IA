@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>IV4 IA - Inteligência Académica</title>
+    <title>IV4 IA | Assistente Académico & Humanizador de Texto (Moçambique)</title>
+    <meta name="description" content="Descubra o IV4 IA, a plataforma criada por Ivo Nunes Jaime no Niassa. Chat Inteligente, Gerador de Trabalhos e Humanizador de Texto para estudantes." />
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -22,8 +23,13 @@
       }
     </script>
     <script>
-      // Polyfill for process.env to prevent crashes in browser environments
-      window.process = window.process || { env: { API_KEY: '' } };
+      // Robust Polyfill for process.env to prevent crashes in browser environments
+      window.process = window.process || {};
+      window.process.env = window.process.env || {};
+      // Ensure API_KEY defaults to empty string if undefined to prevent 'undefined' access errors
+      if (!window.process.env.API_KEY) {
+        window.process.env.API_KEY = ''; 
+      }
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -50,6 +56,16 @@
       }
       .dark ::-webkit-scrollbar-thumb:hover {
         background: #6b7280;
+      }
+      /* Loading State */
+      #root:empty::before {
+        content: 'A carregar IV4 IA...';
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        color: #6b7280;
+        font-size: 0.875rem;
       }
     </style>
   <script type="importmap">
