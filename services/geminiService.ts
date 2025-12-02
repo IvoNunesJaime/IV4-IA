@@ -1,66 +1,60 @@
-import { GoogleGenAI } from "@google/genai";
 import { HumanizerVariant } from "../types";
 
-// NOTE: In a production app, the key should come from a secure backend proxy.
-// Lazily initialize to ensure process.env is available and prevent crash on module load.
-const getAi = () => {
-  // Safety check to prevent crash if process.env is missing or key is undefined
-  const apiKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : '';
-  
-  if (!apiKey) {
-    console.warn("IV4 IA: API_KEY is missing. Please set it in your environment variables.");
-    // Return with a dummy key to allow the app to load UI, requests will fail gracefully in try/catch blocks
-    return new GoogleGenAI({ apiKey: 'missing-key' });
+// Define the backend endpoint
+const API_ENDPOINT = '/api/generate';
+
+/**
+ * Generic helper to send requests to your Vercel backend.
+ * This replaces the direct GoogleGenAI client instantiation.
+ */
+async function callBackend(payload: any): Promise<string> {
+  try {
+    const response = await fetch(API_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      console.error(`Backend Error: ${response.status}`);
+      throw new Error("Falha na comunicação com o servidor.");
+    }
+
+    const data = await response.json();
+    // Assuming your backend returns { text: "..." } or { output: "..." }
+    return data.text || data.output || "";
+  } catch (error) {
+    console.error("Service Request Failed:", error);
+    throw error;
   }
-  
-  return new GoogleGenAI({ apiKey });
-};
+}
 
 export const GeminiService = {
   /**
-   * Chat with the AI, supporting text and images
+   * Chat with the AI, supporting text and images.
+   * Sends history and message to backend for processing.
    */
   async chat(history: { role: string; parts: { text?: string; inlineData?: any }[] }[], message: string, imageBase64?: string): Promise<string> {
     try {
-      const ai = getAi();
-      const model = 'gemini-2.5-flash';
       const systemInstruction = 'Você é o IV4 IA, um assistente de inteligência artificial avançado. Foste criado por Ivo Nunes Jaime, um jovem inovador moçambicano de 16 anos, residente na província do Niassa, distrito de Lichinga. Responda sempre de forma útil, académica, clara e educada.';
-
-      if (imageBase64) {
-        const parts: any[] = [{ text: message }];
-        const base64Data = imageBase64.split(',')[1];
-        const mimeType = imageBase64.split(';')[0].split(':')[1];
-
-        parts.push({
-            inlineData: {
-                mimeType: mimeType,
-                data: base64Data
-            }
-        });
-
-        const response = await ai.models.generateContent({
-            model: model,
-            contents: { role: 'user', parts: parts },
-            config: { systemInstruction: systemInstruction }
-        });
-        return response.text || "Sem resposta.";
-      } else {
-        const chat = ai.chats.create({
-            model: model,
-            config: { systemInstruction: systemInstruction },
-            history: history as any,
-        });
-        const response = await chat.sendMessage({ message });
-        return response.text || "Não foi possível gerar uma resposta.";
-      }
+      
+      return await callBackend({
+        action: 'chat',
+        history: history,
+        message: message,
+        image: imageBase64,
+        systemInstruction: systemInstruction
+      });
     } catch (error) {
-      console.error("Gemini Chat Error:", error);
-      return "Erro ao conectar ao servidor de IA.";
+      return "Erro ao conectar ao servidor. Tente novamente.";
     }
   },
 
   /**
-   * Analyzes the conversation to extract document metadata or ask follow-up questions.
+   * Analyzes the conversation to extract document metadata.
+   * Constructs the prompt here but sends it to backend for secure execution.
    */
   async negotiateDocumentDetails(history: { role: string; text: string }[], currentMessage: string): Promise<{ 
       reply: string; 
@@ -68,7 +62,6 @@ export const GeminiService = {
       isReady: boolean 
   }> {
     try {
-        const ai = getAi();
         const prompt = `
             Você é um assistente especializado em criar trabalhos escolares (Contexto: Moçambique).
             Seu objetivo é extrair os seguintes dados do usuário para montar a Capa e o Trabalho:
@@ -110,14 +103,14 @@ export const GeminiService = {
             }
         `;
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: { responseMimeType: 'application/json' }
+        // Send to backend with 'json' mode flag
+        const jsonText = await callBackend({
+            action: 'generate',
+            prompt: prompt,
+            jsonMode: true 
         });
 
-        const jsonText = response.text || "{}";
-        return JSON.parse(jsonText);
+        return JSON.parse(jsonText || "{}");
     } catch (error) {
         console.error("Negotiation Error:", error);
         return { 
@@ -129,12 +122,11 @@ export const GeminiService = {
   },
 
   /**
-   * Generate a full academic document structure
+   * Generate a full academic document structure.
+   * Constructs the HTML prompt locally and sends to backend.
    */
   async generateDocument(data: any, addBorder: boolean = true): Promise<string> {
     try {
-      const ai = getAi();
-      
       // Determine Total Pages requested (Default 8 if not specified, min 5)
       const targetPages = data.pageCount ? Math.max(5, data.pageCount) : 8;
       const includeContraCapa = data.includeContraCapa === true;
@@ -282,12 +274,10 @@ export const GeminiService = {
         </div>
       `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: promptText,
+      let text = await callBackend({
+        action: 'generate',
+        prompt: promptText
       });
-
-      let text = response.text || "<p>Erro ao gerar documento.</p>";
       
       // Sanitize: Remove markdown code blocks if AI ignores instructions
       text = text.replace(/```html/g, '').replace(/```/g, '');
@@ -299,15 +289,19 @@ export const GeminiService = {
     }
   },
 
+  /**
+   * Humanize text by calling backend
+   */
   async humanizeText(text: string, variant: HumanizerVariant): Promise<string> {
     try {
-      const ai = getAi();
       const prompt = `
         Aja como um falante nativo de ${variant}. Reescreva o texto para torná-lo natural.
         Texto: "${text}"
       `;
-      const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
-      return response.text || text;
+      return await callBackend({
+        action: 'generate',
+        prompt: prompt
+      });
     } catch (error) {
       return text;
     }
