@@ -69,7 +69,6 @@ export const GeminiService = {
 
   /**
    * Analisa a conversa para extrair metadados do documento.
-   * AGORA SUPORTA QUALQUER TIPO DE DOCUMENTO (Trabalho, Curriculo, Carta, etc.)
    */
   async negotiateDocumentDetails(history: { role: string; text: string }[], currentMessage: string): Promise<{ 
       reply: string; 
@@ -81,8 +80,7 @@ export const GeminiService = {
             Você é um Arquiteto de Documentos Profissional e Académico (Contexto: Moçambique).
             
             SEU OBJETIVO: Entender que tipo de documento o usuário quer e coletar os detalhes necessários para gerá-lo.
-            NÃO assuma que é sempre um trabalho escolar.
-
+            
             Histórico da conversa:
             ${JSON.stringify(history)}
 
@@ -91,26 +89,21 @@ export const GeminiService = {
             LÓGICA DE EXTRAÇÃO:
             
             1. IDENTIFIQUE O TIPO DE DOCUMENTO ('docType'):
-               - 'TRABALHO_ESCOLAR': Se pedir trabalho, pesquisa, TPC.
+               - 'TRABALHO_ESCOLAR': Se pedir trabalho, pesquisa, relatório, TPC, projeto.
                - 'CURRICULO': Se pedir CV, curriculum vitae.
                - 'CARTA': Se pedir carta, requerimento, declaração.
-               - 'GENERICO': Outros (resumos simples, relatórios, atas).
+               - 'GENERICO': Outros.
 
             2. PEÇA DETALHES BASEADO NO TIPO:
                
-               A) Se for TRABALHO_ESCOLAR:
-                  - Precisa de: Nome da Escola, Aluno, Docente, Disciplina, Tema, Classe/Turma.
-                  - Pergunte se quer "Contra Capa".
+               A) Se for TRABALHO_ESCOLAR / RELATÓRIO:
+                  - Precisa de: Nome da Escola/Instituição, Nome do Aluno (Autor), Nome do Docente/Supervisor, Cadeira/Disciplina, TEMA DO TRABALHO, Classe/Ano, Local (Cidade) e Ano atual.
                
                B) Se for CURRICULO (CV):
                   - Precisa de: Nome Completo, Contactos, Resumo Profissional, Habilidades, Histórico (Educação/Emprego).
-                  - Se faltar algo, peça ao usuário para "detalhar melhor suas experiências e dados pessoais".
                
                C) Se for CARTA / REQUERIMENTO:
                   - Precisa de: Quem envia (Remetente), Quem recebe (Destinatário), Assunto, Objetivo da carta.
-               
-               D) Se for GENERICO:
-                  - Precisa de: Título, Objetivo, Público-alvo, Tópicos principais.
 
             3. REGRAS DE RETORNO:
                - Se faltam dados críticos para aquele tipo, sua 'reply' deve pedir esses dados educadamente.
@@ -122,15 +115,15 @@ export const GeminiService = {
                 "reply": "Sua pergunta ou confirmação aqui...",
                 "extractedData": {
                     "docType": "TRABALHO_ESCOLAR" | "CURRICULO" | "CARTA" | "GENERICO",
-                    "topic": "Resumo do que se trata",
+                    "topic": "Tema ou Assunto Principal",
                     "school": "...", 
                     "student": "...", 
                     "teacher": "...", 
                     "grade": "...", 
-                    "includeContraCapa": boolean,
+                    "location": "Ex: Lichinga",
+                    "year": "2025",
                     "cvData": { "name": "...", "experience": "..." },
                     "letterData": { "to": "...", "from": "...", "subject": "..." }
-                    // Adicione outros campos conforme o usuário for informando
                 },
                 "isReady": boolean
             }
@@ -160,71 +153,170 @@ export const GeminiService = {
     try {
       const docType = data.docType || 'GENERICO';
       
+      // Definição de estilos CSS embutidos para garantir formatação exata A4 e bordas
+      const styleBlock = `
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Times+New+Roman&display=swap');
+            body { 
+                font-family: 'Times New Roman', serif; 
+                line-height: 1.5; 
+                color: black; 
+                margin: 0;
+                padding: 0;
+            }
+            .page {
+                width: 21cm;
+                height: 29.7cm;
+                padding: 3cm 2.5cm 2.5cm 3cm; /* Margens ABNT/Padrão: Sup 3, Dir 2.5, Inf 2.5, Esq 3 */
+                background: white;
+                box-sizing: border-box;
+                overflow: hidden;
+                position: relative;
+                page-break-after: always;
+                font-size: 12pt;
+                text-align: justify;
+            }
+            /* Capa com Esquadria Dupla */
+            .page-cover {
+                padding: 1cm !important; /* Margem menor para dar espaço à borda */
+                display: flex;
+                flex-direction: column;
+            }
+            .cover-border-outer {
+                border: 3px solid black;
+                height: 100%;
+                width: 100%;
+                padding: 4px; /* Espaço entre borda grossa e fina */
+                box-sizing: border-box;
+            }
+            .cover-border-inner {
+                border: 1px solid black;
+                height: 100%;
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                align-items: center;
+                padding: 2cm 1cm;
+                box-sizing: border-box;
+                text-align: center;
+            }
+            
+            /* Títulos e Textos */
+            h1 { font-size: 14pt; font-weight: bold; text-transform: uppercase; margin-bottom: 0.5cm; text-align: center; }
+            h2 { font-size: 12pt; font-weight: bold; text-transform: uppercase; margin-top: 1cm; margin-bottom: 0.5cm; text-align: left; }
+            h3 { font-size: 12pt; font-weight: bold; margin-top: 0.5cm; text-align: left; }
+            p { margin-bottom: 0.5cm; }
+            
+            /* Caixa de texto da Folha de Rosto */
+            .folha-rosto-container {
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .natureza-trabalho-box {
+                width: 55%;
+                margin-left: 45%; /* Joga para a direita */
+                font-size: 10pt;
+                line-height: 1.2;
+                margin-top: 2cm;
+                margin-bottom: 2cm;
+                text-align: justify;
+                border: 1px solid black; /* Borda fina para destacar no exemplo, opcional */
+                padding: 10px;
+            }
+            
+            /* Elementos Centrados */
+            .centered { text-align: center; }
+            .uppercase { text-transform: uppercase; }
+            .bold { font-weight: bold; }
+            
+            /* Rodapé de Data */
+            .footer-date { margin-top: auto; text-align: center; font-weight: bold; }
+            
+            /* Índice */
+            .toc-item { display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; margin-bottom: 5px; }
+            .toc-page { font-weight: bold; }
+        </style>
+      `;
+      
       let promptContext = "";
       
       if (docType === 'TRABALHO_ESCOLAR') {
-          const targetPages = data.pageCount ? Math.max(5, data.pageCount) : 8;
-          const includeContraCapa = data.includeContraCapa === true;
           promptContext = `
-            TIPO: TRABALHO ESCOLAR (Padrão Moçambique).
-            DADOS: Escola: ${data.school}, Aluno: ${data.student}, Docente: ${data.teacher}, Tema: ${data.topic || data.theme}.
-            ESTRUTURA:
-            - Capa (Com borda/esquadria)
-            ${includeContraCapa ? '- Contra Capa' : ''}
-            - Índice
-            - Introdução
-            - Desenvolvimento (${targetPages} páginas aprox)
-            - Conclusão
-            - Bibliografia
+            TIPO: RELATÓRIO DE INVESTIGAÇÃO / TRABALHO ACADÉMICO FORMAL (Moçambique).
             
-            REGRAS CSS: Use <div class="page"> para cada folha. Borda APENAS na capa. Fonte Times New Roman.
+            DADOS PARA PREENCHER:
+            - Instituição: ${data.school || "INSTITUTO DE FORMAÇÃO"}
+            - Autor: ${data.student || "Nome do Aluno"}
+            - Título/Tema: ${data.topic || data.theme || "TEMA DO TRABALHO"}
+            - Local/Data: ${data.location || "Moçambique"}, ${data.year || "2025"}
+            - Texto da Folha de Rosto: "Trabalho de campo/investigação a ser apresentado na instituição ${data.school || ""}, na disciplina de ${data.subject || "Investigação"}, como requisito de avaliação sob supervisão do docente: ${data.teacher || "Nome do Docente"}."
+            
+            ESTRUTURA OBRIGATÓRIA (Crie cada página dentro de uma <div class="page">):
+            
+            PÁGINA 1: CAPA (Use classes .page-cover, .cover-border-outer, .cover-border-inner)
+            - Topo: Nome da Instituição (Maiúsculas, Negrito).
+            - Centro Superior: Nome do Autor.
+            - Centro Meio: TÍTULO DO TRABALHO (Maiúsculas, Negrito, Grande).
+            - Base: Local e Data.
+            
+            PÁGINA 2: FOLHA DE ROSTO (Sem borda dupla, layout padrão)
+            - Topo: Nome do Autor.
+            - Centro: Título do Trabalho.
+            - Meio-Direita (Classe .natureza-trabalho-box): O texto explicativo sobre a natureza do trabalho (requisito parcial, nome do docente, etc).
+            - Base: Local e Data.
+            
+            PÁGINA 3: ÍNDICE
+            - Título "ÍNDICE".
+            - Lista simulada de tópicos (Introdução... pág 4, etc).
+            
+            PÁGINA 4: INTRODUÇÃO
+            - Título "1. INTRODUÇÃO".
+            - Texto introdutório bem desenvolvido sobre "${data.topic}".
+            - Incluir subseção "1.1 Problema".
+            - Incluir subseção "1.2 Objetivos" (Geral e Específicos).
+            - Incluir subseção "1.3 Justificativa".
+            
+            PÁGINA 5: DESENVOLVIMENTO / FUNDAMENTAÇÃO TEÓRICA
+            - Título "2. FUNDAMENTAÇÃO TEÓRICA".
+            - Desenvolva o tema com base em autores fictícios ou reais (ex: Piaget, Vygotsky se for educação, ou relevantes à área).
+            - Cite pelo menos 2 definições ou conceitos.
+            
+            PÁGINA 6: CONCLUSÃO E BIBLIOGRAFIA
+            - Título "3. CONCLUSÃO".
+            - Breve fecho.
+            - Título "4. BIBLIOGRAFIA".
+            - Lista de 3 referências bibliográficas formatadas (APA).
           `;
       } else if (docType === 'CURRICULO') {
           promptContext = `
-            TIPO: CURRICULUM VITAE (CV) Profissional e Moderno.
-            DADOS: ${JSON.stringify(data.cvData || data)}.
-            ESTRUTURA:
-            - Cabeçalho (Nome, Contactos em destaque)
-            - Resumo Profissional
-            - Experiência Profissional (Use bullet points, datas claras)
-            - Educação / Formação
-            - Habilidades / Competências
-            - Idiomas
-            
-            REGRAS CSS: Layout limpo, sans-serif (Arial/Inter), use <div class="page">. Seções bem divididas com hr ou fundos leves.
-          `;
-      } else if (docType === 'CARTA') {
-          promptContext = `
-            TIPO: CARTA FORMAL / REQUERIMENTO.
-            DADOS: De: ${data.letterData?.from || data.student}, Para: ${data.letterData?.to}, Assunto: ${data.letterData?.subject}.
-            ESTRUTURA:
-            - Local e Data (alinhado direita)
-            - Destinatário (Formal)
-            - Saudação
-            - Corpo do texto (Claro, direto e respeitoso)
-            - Despedida
-            - Espaço para Assinatura
-            
-            REGRAS CSS: Fonte Serif, margens largas, <div class="page"> única.
+            TIPO: CURRICULUM VITAE (CV).
+            ESTRUTURA: Cabeçalho, Resumo, Experiência, Educação.
+            Use <div class="page">. Formatação limpa e profissional.
           `;
       } else {
           promptContext = `
-            TIPO: DOCUMENTO GENÉRICO / RELATÓRIO.
+            TIPO: DOCUMENTO GERAL.
             TEMA: ${data.topic}.
-            ESTRUTURA: Título, Subtítulos, Parágrafos bem estruturados.
-            REGRAS CSS: <div class="page">.
+            Use <div class="page">. Título e parágrafos.
           `;
       }
 
       const promptText = `
-        Gere um DOCUMENTO HTML COMPLETO pronto para imprimir/Word.
+        Gere um DOCUMENTO HTML COMPLETO.
         
+        INSTRUÇÕES TÉCNICAS:
+        1. Inclua o bloco de estilo CSS fornecido abaixo exatemente como está.
+        2. Use APENAS HTML. Não use Markdown (nada de \`\`\`).
+        3. O conteúdo deve estar dentro de tags <div class="page"> para garantir a quebra de página.
+        
+        ${styleBlock}
+        
+        CONTEÚDO E ESTRUTURA DO DOCUMENTO:
         ${promptContext}
-
-        IMPORTANTE:
-        1. Gere APENAS o HTML dentro das divs class="page".
-        2. Não use markdown.
-        3. CSS inline para garantir formatação básica.
       `;
 
       const response = await ai.models.generateContent({
@@ -245,7 +337,8 @@ export const GeminiService = {
   async humanizeText(text: string, variant: HumanizerVariant): Promise<string> {
     try {
       const prompt = `
-        Aja como um falante nativo de ${variant}. Reescreva o texto para torná-lo natural.
+        Aja como um falante nativo de ${variant}. Reescreva o texto para torná-lo natural, fluido e humano.
+        Mantenha a formatação HTML se houver.
         Texto: "${text}"
       `;
       const response = await ai.models.generateContent({
