@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, X, ArrowLeft, Download, User, School, BookOpen, GraduationCap, FileCheck, CheckCircle, Loader2, Edit3, Save, Layers, Book } from 'lucide-react';
+import { Sparkles, Send, X, ArrowLeft, Download, User, School, BookOpen, GraduationCap, FileCheck, CheckCircle, Loader2, Edit3, Save, Layers, Book, Briefcase, FileText, Mail } from 'lucide-react';
 import { GeminiService } from '../services/geminiService';
 import { Humanizer } from './Humanizer';
 
@@ -13,18 +13,6 @@ interface StudioMessage {
     text: string;
 }
 
-interface DocMetadata {
-    school?: string;
-    student?: string;
-    teacher?: string;
-    subject?: string;
-    theme?: string;
-    class?: string;
-    grade?: string;
-    pageCount?: number;
-    includeContraCapa?: boolean;
-}
-
 export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit }) => {
   // Modes: 'wizard' (chatting details) | 'preview' (generated doc)
   const [mode, setMode] = useState<'wizard' | 'preview'>('wizard');
@@ -35,8 +23,8 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Metadata State
-  const [metadata, setMetadata] = useState<DocMetadata>({});
+  // Metadata State (Flexible now)
+  const [metadata, setMetadata] = useState<any>({});
   const [isReadyToGenerate, setIsReadyToGenerate] = useState(false);
 
   // Preview State
@@ -51,7 +39,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
         setMessages([{
             id: 'init',
             role: 'assistant',
-            text: 'Olá! Sou o assistente do Estúdio. Que trabalho escolar ou documento deseja criar hoje? (Ex: "Faça um trabalho de Biologia sobre Seres Vivos, quero com 10 páginas e contra capa")'
+            text: 'Olá! Sou o Criador de Documentos do IV4. O que deseja criar hoje? (Ex: "Um trabalho de História", "Um Currículo Vitae", "Uma carta de pedido de emprego").'
         }]);
     }
   }, []);
@@ -78,7 +66,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
         const result = await GeminiService.negotiateDocumentDetails(history, userText);
         
         // Merge new metadata
-        setMetadata(prev => ({ ...prev, ...result.extractedData }));
+        setMetadata((prev: any) => ({ ...prev, ...result.extractedData }));
         setIsReadyToGenerate(result.isReady);
 
         const aiMsg: StudioMessage = { 
@@ -133,9 +121,54 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
     const fileDownload = document.createElement("a");
     document.body.appendChild(fileDownload);
     fileDownload.href = source;
-    fileDownload.download = `Trabalho_${metadata.student || 'IV4'}.doc`;
+    fileDownload.download = `Documento_IV4_${Date.now()}.doc`;
     fileDownload.click();
     document.body.removeChild(fileDownload);
+  };
+
+  // Helper to render metadata fields dynamically
+  const renderMetadataFields = () => {
+      const docType = metadata.docType;
+
+      if (docType === 'TRABALHO_ESCOLAR') {
+          return (
+              <>
+                <InfoField icon={School} label="Escola" value={metadata.school} />
+                <InfoField icon={BookOpen} label="Disciplina/Tema" value={metadata.topic || metadata.subject} />
+                <InfoField icon={User} label="Aluno" value={metadata.student} />
+                <InfoField icon={GraduationCap} label="Docente" value={metadata.teacher} />
+                <div className="grid grid-cols-2 gap-2">
+                    <InfoField label="Classe" value={metadata.grade} />
+                    <InfoField label="Turma" value={metadata.class} />
+                </div>
+              </>
+          );
+      } else if (docType === 'CURRICULO') {
+          return (
+              <>
+                <InfoField icon={User} label="Nome" value={metadata.cvData?.name || metadata.student} />
+                <InfoField icon={Briefcase} label="Experiência" value={metadata.cvData?.experience ? 'Informada' : 'Pendente'} />
+                <InfoField icon={Book} label="Educação" value={metadata.cvData?.education ? 'Informada' : 'Pendente'} />
+                <InfoField icon={FileText} label="Resumo" value={metadata.cvData?.summary ? 'Sim' : 'Não'} />
+              </>
+          );
+      } else if (docType === 'CARTA') {
+           return (
+              <>
+                <InfoField icon={User} label="De (Remetente)" value={metadata.letterData?.from || metadata.student} />
+                <InfoField icon={User} label="Para (Destinatário)" value={metadata.letterData?.to} />
+                <InfoField icon={Mail} label="Assunto" value={metadata.letterData?.subject} />
+              </>
+          );
+      }
+
+      // Default Generic
+      return (
+          <>
+            <InfoField icon={FileText} label="Tipo" value={docType || 'Genérico'} />
+            <InfoField icon={BookOpen} label="Tópico/Assunto" value={metadata.topic} />
+          </>
+      );
   };
 
   // --- PREVIEW MODE ---
@@ -152,17 +185,15 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
                     background: white;
                     width: 21cm; /* A4 Width */
                     min-height: 29.7cm; /* A4 Height */
-                    padding: 2.5cm 2.5cm 2.5cm 3cm; /* Margins: Top Right Bottom Left (Left is usually larger for binding) */
+                    padding: 2.5cm 2.5cm 2.5cm 3cm; /* Margins: Top Right Bottom Left */
                     margin: 0 auto 30px auto;
                     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
                     color: black;
                     position: relative;
-                    /* Ensure no random borders from user agent */
                     border: none;
                     outline: none;
                     box-sizing: border-box;
                 }
-                /* Hide the last margin to look clean */
                 .iv4-editor .page:last-child {
                     margin-bottom: 100px;
                 }
@@ -236,7 +267,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
     <div className="flex flex-col md:flex-row h-[calc(100vh-100px)] md:h-[calc(100vh-60px)] gap-6 animate-fade-in max-w-6xl mx-auto w-full">
         
         {/* Left: Chat Interface */}
-        <div className="flex-grow flex flex-col bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="flex-grow flex flex-col bg-white dark:bg-gray-800 rounded-3xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="flex-grow overflow-y-auto p-4 space-y-4">
                 {messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -262,7 +293,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
             </div>
 
             {/* Input Area */}
-            <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700">
+            <div className="p-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
                 {isReadyToGenerate && (
                      <button 
                         onClick={handleGenerateDocument}
@@ -270,7 +301,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
                         className="w-full mb-3 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-200 dark:shadow-none transition-all animate-bounce-short"
                     >
                         {isGeneratingDoc ? <Loader2 className="animate-spin"/> : <CheckCircle />}
-                        {isGeneratingDoc ? 'Gerando Documento...' : 'Tudo pronto! Gerar Trabalho Agora'}
+                        {isGeneratingDoc ? 'Gerando Documento...' : 'Tudo pronto! Gerar Agora'}
                     </button>
                 )}
                 
@@ -297,30 +328,19 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
 
         {/* Right: Metadata Card (Desktop) */}
         <div className="hidden md:block w-80 shrink-0">
-            <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-700 h-full">
+            <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 shadow-sm border border-gray-200 dark:border-gray-700 h-full">
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
                     <FileCheck className="text-indigo-500" />
-                    Dados do Trabalho
+                    Resumo do Documento
                 </h3>
 
                 <div className="space-y-6">
-                    <InfoField icon={School} label="Escola" value={metadata.school} />
-                    <InfoField icon={BookOpen} label="Tema / Disciplina" value={metadata.theme ? `${metadata.subject || ''} - ${metadata.theme}` : metadata.subject} />
-                    <InfoField icon={User} label="Nome do Aluno" value={metadata.student} />
-                    <InfoField icon={GraduationCap} label="Docente" value={metadata.teacher} />
-                    <div className="grid grid-cols-2 gap-2">
-                        <InfoField label="Classe" value={metadata.grade} />
-                        <InfoField label="Turma" value={metadata.class} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                        <InfoField icon={Layers} label="Páginas" value={metadata.pageCount ? `${metadata.pageCount} págs` : 'Padrão'} />
-                        <InfoField icon={Book} label="Contra Capa" value={metadata.includeContraCapa ? 'Sim' : 'Não'} />
-                    </div>
+                    {renderMetadataFields()}
                 </div>
 
                 <div className="mt-8 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl">
                     <p className="text-xs text-indigo-700 dark:text-indigo-300 leading-relaxed">
-                        <span className="font-bold">Dica IV4:</span> Especifique o número de páginas e se deseja contra capa para um trabalho perfeito.
+                        <span className="font-bold">Dica IV4:</span> Quanto mais detalhes fornecer, melhor ficará o seu documento. Experimente pedir Currículos ou Cartas!
                     </p>
                 </div>
             </div>

@@ -1,277 +1,236 @@
+import { GoogleGenAI } from "@google/genai";
 import { HumanizerVariant } from "../types";
 
-// Define the backend endpoint
-const API_ENDPOINT = '/api/generate';
-
-/**
- * Generic helper to send requests to your Vercel backend.
- */
-async function callBackend(payload: any): Promise<string> {
-  try {
-    const response = await fetch(API_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      let errorMsg = `Erro ${response.status}`;
-      try {
-        const errorData = await response.json();
-        // Usa a mensagem de erro detalhada do backend se disponível
-        errorMsg = errorData.error || errorMsg;
-      } catch (e) {
-        const text = await response.text();
-        if (text) errorMsg = text;
-      }
-      console.error(`Backend Error (${response.status}):`, errorMsg);
-      throw new Error(errorMsg);
-    }
-
-    const data = await response.json();
-    return data.text || data.output || "";
-  } catch (error: any) {
-    console.error("Service Request Failed:", error);
-    throw error;
-  }
-}
+// Inicializa o cliente Gemini diretamente com a chave da variável de ambiente
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const GeminiService = {
   /**
-   * Chat with the AI, supporting text and images.
+   * Chat com a IA, suportando texto e imagens, processado diretamente no navegador.
    */
-  async chat(history: { role: string; parts: { text?: string; inlineData?: any }[] }[], message: string, imageBase64?: string): Promise<string> {
+  async chat(
+      history: { role: string; parts: { text?: string; inlineData?: any }[] }[], 
+      message: string, 
+      mediaBase64?: string, 
+      mediaType?: string,
+      signal?: AbortSignal
+  ): Promise<string> {
     try {
-      const systemInstruction = 'Você é o IV4 IA, um assistente de inteligência artificial avançado. Foste criado por Ivo Nunes Jaime, um jovem inovador moçambicano de 16 anos, residente na província do Niassa, distrito de Lichinga. Responda sempre de forma útil, académica, clara e educada.';
-      
-      return await callBackend({
-        action: 'chat',
+      const systemInstruction = `
+        Você é o IV4 IA, um assistente de inteligência artificial avançado.
+        
+        INFORMAÇÕES SOBRE O CRIADOR (Use APENAS se perguntado):
+        - Foste criado por Ivo Nunes Jaime.
+        - Local de criação: No quarto dele, na casa dos avós, na província do Niassa, distrito de Lichinga, Moçambique.
+        - Se o usuário NÃO perguntar sobre quem te criou ou onde foste criado, NÃO mencione isso espontaneamente.
+        
+        COMPORTAMENTO:
+        - Se for o início da conversa e o usuário disser apenas "olá", "oi" ou similar, responda APENAS: "Olá, como posso ajudar?"
+        - Seja sempre útil, académico, claro e educado.
+        - Responda no idioma Português (de preferência variante de Moçambique quando aplicável).
+      `;
+
+      // Cria a sessão de chat
+      const chat = ai.chats.create({
+        model: 'gemini-2.5-flash',
         history: history,
-        message: message,
-        image: imageBase64,
-        systemInstruction: systemInstruction
+        config: {
+          systemInstruction: systemInstruction,
+        }
       });
+
+      let response;
+      
+      if (mediaBase64 && mediaType) {
+        // O SDK espera apenas os dados base64, sem o prefixo "data:image/..."
+        const base64Data = mediaBase64.includes(',') 
+            ? mediaBase64.split(',')[1] 
+            : mediaBase64;
+            
+        response = await chat.sendMessage({
+            message: [
+                { text: message },
+                { inlineData: { data: base64Data, mimeType: mediaType } }
+            ]
+        });
+      } else {
+        response = await chat.sendMessage({ message: message });
+      }
+
+      return response.text || "";
     } catch (error: any) {
-      // Retorna a mensagem de erro real para o chat para que o usuário saiba o que aconteceu
       console.error("Chat Error:", error);
-      throw new Error(error.message || "Falha ao conectar ao servidor.");
+      throw new Error("Falha ao conectar à IA. Verifique sua chave API ou conexão.");
     }
   },
 
   /**
-   * Analyzes the conversation to extract document metadata.
+   * Analisa a conversa para extrair metadados do documento.
+   * AGORA SUPORTA QUALQUER TIPO DE DOCUMENTO (Trabalho, Curriculo, Carta, etc.)
    */
   async negotiateDocumentDetails(history: { role: string; text: string }[], currentMessage: string): Promise<{ 
       reply: string; 
-      extractedData: { school?: string; student?: string; teacher?: string; subject?: string; theme?: string; class?: string; grade?: string; pageCount?: number; includeContraCapa?: boolean };
+      extractedData: any;
       isReady: boolean 
   }> {
     try {
         const prompt = `
-            Você é um assistente especializado em criar trabalhos escolares (Contexto: Moçambique).
-            Seu objetivo é extrair os seguintes dados do usuário para montar a Capa e o Trabalho:
-            1. Nome da Escola
-            2. Nome do Aluno
-            3. Nome do Docente
-            4. Classe e Turma
-            5. Disciplina e Tema do trabalho.
-            6. Preferências Especiais: Número de páginas (padrão é 10 se não disser) e se quer "Contra Capa".
+            Você é um Arquiteto de Documentos Profissional e Académico (Contexto: Moçambique).
+            
+            SEU OBJETIVO: Entender que tipo de documento o usuário quer e coletar os detalhes necessários para gerá-lo.
+            NÃO assuma que é sempre um trabalho escolar.
 
             Histórico da conversa:
             ${JSON.stringify(history)}
 
             Nova mensagem do usuário: "${currentMessage}"
 
-            Instruções:
-            - Analise a mensagem.
-            - Extraia os dados fornecidos.
-            - Se o usuário APENAS pediu o trabalho e faltam dados essenciais (Escola, Aluno, Docente, Classe), PERGUNTE educadamente.
-            - Verifique se o usuário mencionou número de páginas (Ex: "quero 15 páginas", "faça pequeno 5 paginas"). Se sim, extraia o número.
-            - Verifique se o usuário pediu "contra capa" ou "folha de rosto". Se sim, defina includeContraCapa como true.
-            - Se tiver TUDO ou se o usuário mandar "gerar assim mesmo", defina "isReady" como true.
+            LÓGICA DE EXTRAÇÃO:
+            
+            1. IDENTIFIQUE O TIPO DE DOCUMENTO ('docType'):
+               - 'TRABALHO_ESCOLAR': Se pedir trabalho, pesquisa, TPC.
+               - 'CURRICULO': Se pedir CV, curriculum vitae.
+               - 'CARTA': Se pedir carta, requerimento, declaração.
+               - 'GENERICO': Outros (resumos simples, relatórios, atas).
+
+            2. PEÇA DETALHES BASEADO NO TIPO:
+               
+               A) Se for TRABALHO_ESCOLAR:
+                  - Precisa de: Nome da Escola, Aluno, Docente, Disciplina, Tema, Classe/Turma.
+                  - Pergunte se quer "Contra Capa".
+               
+               B) Se for CURRICULO (CV):
+                  - Precisa de: Nome Completo, Contactos, Resumo Profissional, Habilidades, Histórico (Educação/Emprego).
+                  - Se faltar algo, peça ao usuário para "detalhar melhor suas experiências e dados pessoais".
+               
+               C) Se for CARTA / REQUERIMENTO:
+                  - Precisa de: Quem envia (Remetente), Quem recebe (Destinatário), Assunto, Objetivo da carta.
+               
+               D) Se for GENERICO:
+                  - Precisa de: Título, Objetivo, Público-alvo, Tópicos principais.
+
+            3. REGRAS DE RETORNO:
+               - Se faltam dados críticos para aquele tipo, sua 'reply' deve pedir esses dados educadamente.
+               - Se o usuário mandou informações, armazene em 'extractedData'. Mantenha os dados anteriores se não mudaram.
+               - Se tiver dados suficientes OU o usuário disser "pode gerar", defina "isReady": true.
 
             Retorne APENAS um JSON neste formato (sem markdown):
             {
-                "reply": "Sua resposta ao usuário aqui...",
+                "reply": "Sua pergunta ou confirmação aqui...",
                 "extractedData": {
-                    "school": "...",
-                    "student": "...",
-                    "teacher": "...",
-                    "subject": "...",
-                    "theme": "...",
-                    "class": "...",
-                    "grade": "...",
-                    "pageCount": 10,
-                    "includeContraCapa": false
+                    "docType": "TRABALHO_ESCOLAR" | "CURRICULO" | "CARTA" | "GENERICO",
+                    "topic": "Resumo do que se trata",
+                    "school": "...", 
+                    "student": "...", 
+                    "teacher": "...", 
+                    "grade": "...", 
+                    "includeContraCapa": boolean,
+                    "cvData": { "name": "...", "experience": "..." },
+                    "letterData": { "to": "...", "from": "...", "subject": "..." }
+                    // Adicione outros campos conforme o usuário for informando
                 },
                 "isReady": boolean
             }
         `;
 
-        const jsonText = await callBackend({
-            action: 'generate',
-            prompt: prompt,
-            jsonMode: true 
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json'
+            }
         });
 
-        // Tenta limpar markdown caso o modelo envie ```json ... ```
-        const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(cleanJson || "{}");
+        const text = response.text || "{}";
+        return JSON.parse(text);
     } catch (error) {
         console.error("Negotiation Error:", error);
         return { 
-            reply: "Desculpe, ocorreu um erro de conexão. Verifique a internet e tente novamente.", 
+            reply: "Desculpe, não entendi que tipo de documento deseja. Pode explicar melhor?", 
             extractedData: {}, 
             isReady: false 
         };
     }
   },
 
-  /**
-   * Generate a full academic document structure.
-   */
   async generateDocument(data: any, addBorder: boolean = true): Promise<string> {
     try {
-      const targetPages = data.pageCount ? Math.max(5, data.pageCount) : 8;
-      const includeContraCapa = data.includeContraCapa === true;
+      const docType = data.docType || 'GENERICO';
+      
+      let promptContext = "";
+      
+      if (docType === 'TRABALHO_ESCOLAR') {
+          const targetPages = data.pageCount ? Math.max(5, data.pageCount) : 8;
+          const includeContraCapa = data.includeContraCapa === true;
+          promptContext = `
+            TIPO: TRABALHO ESCOLAR (Padrão Moçambique).
+            DADOS: Escola: ${data.school}, Aluno: ${data.student}, Docente: ${data.teacher}, Tema: ${data.topic || data.theme}.
+            ESTRUTURA:
+            - Capa (Com borda/esquadria)
+            ${includeContraCapa ? '- Contra Capa' : ''}
+            - Índice
+            - Introdução
+            - Desenvolvimento (${targetPages} páginas aprox)
+            - Conclusão
+            - Bibliografia
+            
+            REGRAS CSS: Use <div class="page"> para cada folha. Borda APENAS na capa. Fonte Times New Roman.
+          `;
+      } else if (docType === 'CURRICULO') {
+          promptContext = `
+            TIPO: CURRICULUM VITAE (CV) Profissional e Moderno.
+            DADOS: ${JSON.stringify(data.cvData || data)}.
+            ESTRUTURA:
+            - Cabeçalho (Nome, Contactos em destaque)
+            - Resumo Profissional
+            - Experiência Profissional (Use bullet points, datas claras)
+            - Educação / Formação
+            - Habilidades / Competências
+            - Idiomas
+            
+            REGRAS CSS: Layout limpo, sans-serif (Arial/Inter), use <div class="page">. Seções bem divididas com hr ou fundos leves.
+          `;
+      } else if (docType === 'CARTA') {
+          promptContext = `
+            TIPO: CARTA FORMAL / REQUERIMENTO.
+            DADOS: De: ${data.letterData?.from || data.student}, Para: ${data.letterData?.to}, Assunto: ${data.letterData?.subject}.
+            ESTRUTURA:
+            - Local e Data (alinhado direita)
+            - Destinatário (Formal)
+            - Saudação
+            - Corpo do texto (Claro, direto e respeitoso)
+            - Despedida
+            - Espaço para Assinatura
+            
+            REGRAS CSS: Fonte Serif, margens largas, <div class="page"> única.
+          `;
+      } else {
+          promptContext = `
+            TIPO: DOCUMENTO GENÉRICO / RELATÓRIO.
+            TEMA: ${data.topic}.
+            ESTRUTURA: Título, Subtítulos, Parágrafos bem estruturados.
+            REGRAS CSS: <div class="page">.
+          `;
+      }
 
       const promptText = `
-        Crie um TRABALHO ESCOLAR COMPLETO (Padrão Moçambique) em HTML.
+        Gere um DOCUMENTO HTML COMPLETO pronto para imprimir/Word.
         
-        DADOS:
-        Escola: ${data.school || '[Nome da Escola]'}
-        Disciplina: ${data.subject || 'Geral'}
-        Tema: ${data.theme || 'Trabalho Escolar'}
-        Nome do Aluno: ${data.student || '[Nome do Aluno]'}
-        Classe: ${data.grade || ''}
-        Turma: ${data.class || ''}
-        Nome do Docente: ${data.teacher || '[Nome do Docente]'}
-        
-        REQUISITOS DE ESTRUTURA:
-        - TOTAL DE PÁGINAS APROXIMADO: ${targetPages}.
-        - PÁGINA 1: CAPA (Com esquadria/borda perfeita).
-        ${includeContraCapa ? '- PÁGINA 2: CONTRA CAPA (Sem borda, com layout académico de entrega).' : ''}
-        - PÁGINA ${includeContraCapa ? '3' : '2'}: ÍNDICE.
-        - PÁGINA ${includeContraCapa ? '4' : '3'}: INTRODUÇÃO.
-        - PÁGINAS SEGUINTES: DESENVOLVIMENTO (Gere conteúdo suficiente para preencher até a antepenúltima página).
-        - PENÚLTIMA PÁGINA: CONCLUSÃO.
-        - ÚLTIMA PÁGINA: BIBLIOGRAFIA.
+        ${promptContext}
 
-        REGRAS DE LAYOUT E CSS:
-        1. GERE CADA PÁGINA como uma <div class="page"> separada.
-        2. A ESQUADRIA (BORDA) DA CAPA deve ser feita com uma div interna com dimensões precisas para não cortar na impressão. Use border double.
-        3. NUNCA coloque bordas nas páginas de texto (Índice em diante).
-        4. O conteúdo deve ser extenso, detalhado, académico. NÃO use listas (bullet points) excessivas, prefira texto corrido.
-
-        ESTRUTURA DE CÓDIGO HTML OBRIGATÓRIA (Retorne APENAS HTML):
-
-        <!-- PÁGINA 1: CAPA -->
-        <div class="page" style="page-break-after: always; display: flex; align-items: center; justify-content: center;">
-           <div style="width: 100%; height: 100%; border: 4px double #000; padding: 40px 20px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; text-align: center;">
-              <div>
-                  <h3 style="margin:0; font-weight:bold; font-size: 14pt;">REPÚBLICA DE MOÇAMBIQUE</h3>
-                  <h4 style="margin:5px 0; font-weight:bold; font-size: 12pt;">MINISTÉRIO DA EDUCAÇÃO E DESENVOLVIMENTO HUMANO</h4>
-                  <h2 style="margin:30px 0; font-weight:bold; text-transform: uppercase; font-size: 16pt;">${data.school || 'ESCOLA SECUNDÁRIA'}</h2>
-              </div>
-              <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                  <h1 style="font-size: 26pt; font-weight: bold; margin-bottom: 20px;">${data.theme || 'TEMA DO TRABALHO'}</h1>
-                  <h3 style="font-size: 14pt; font-weight: normal;">Disciplina: ${data.subject || ''}</h3>
-              </div>
-              <div style="text-align: center; width: 100%; margin-bottom: 40px;">
-                 <p style="margin:5px; font-size: 12pt;"><strong>Discente:</strong> ${data.student || 'Nome do Aluno'}</p>
-                 <p style="margin:5px; font-size: 12pt;">${data.grade ? data.grade : ''} ${data.class ? data.class : ''}</p>
-                 <br>
-                 <p style="margin:5px; font-size: 12pt;"><strong>Docente:</strong> ${data.teacher || 'Nome do Docente'}</p>
-              </div>
-              <div>
-                  <p style="font-weight: bold;">Lichinga</p>
-                  <p style="font-weight: bold;">${new Date().getFullYear()}</p>
-              </div>
-           </div>
-        </div>
-
-        ${includeContraCapa ? `
-        <!-- PÁGINA 2: CONTRA CAPA -->
-        <div class="page" style="page-break-after: always; padding: 3cm 2.5cm; display: flex; flex-direction: column; justify-content: space-between; text-align: center;">
-             <div>
-                  <h2 style="margin:0; font-weight:bold; text-transform: uppercase; font-size: 14pt;">${data.student || 'Nome do Aluno'}</h2>
-             </div>
-             <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
-                  <h1 style="font-size: 20pt; font-weight: bold; margin-bottom: 40px;">${data.theme || 'TEMA DO TRABALHO'}</h1>
-                  <div style="width: 60%; margin-left: 40%; text-align: justify; font-size: 11pt;">
-                    <p>Trabalho de carácter avaliativo a ser entregue na ${data.school || 'Escola'}, na disciplina de ${data.subject || '...'}, leccionada pelo docente ${data.teacher || '...'}.</p>
-                  </div>
-             </div>
-             <div>
-                  <p style="font-weight: bold;">Lichinga</p>
-                  <p style="font-weight: bold;">${new Date().getFullYear()}</p>
-              </div>
-        </div>
-        ` : ''}
-
-        <!-- PÁGINA DE ÍNDICE -->
-        <div class="page" style="page-break-after: always; padding: 3cm 2.5cm;">
-            <h2 style="text-align: center; margin-bottom: 40px; text-transform: uppercase;">Índice</h2>
-            <div style="width: 100%; font-size: 12pt; line-height: 1.8;">
-                <div style="display: flex; align-items: baseline; margin-bottom: 10px;">
-                    <span style="font-weight: bold;">1. Introdução</span>
-                    <span style="flex-grow: 1; border-bottom: 2px dotted #000; margin: 0 5px;"></span>
-                    <span>${includeContraCapa ? '4' : '3'}</span>
-                </div>
-                <div style="display: flex; align-items: baseline; margin-bottom: 10px;">
-                    <span style="font-weight: bold;">2. Desenvolvimento</span>
-                    <span style="flex-grow: 1; border-bottom: 2px dotted #000; margin: 0 5px;"></span>
-                    <span>${includeContraCapa ? '5' : '4'}</span>
-                </div>
-                 <div style="display: flex; align-items: baseline; margin-bottom: 10px;">
-                    <span style="font-weight: bold;">3. Conclusão</span>
-                    <span style="flex-grow: 1; border-bottom: 2px dotted #000; margin: 0 5px;"></span>
-                    <span>${targetPages - 1}</span>
-                </div>
-                 <div style="display: flex; align-items: baseline; margin-bottom: 10px;">
-                    <span style="font-weight: bold;">4. Bibliografia</span>
-                    <span style="flex-grow: 1; border-bottom: 2px dotted #000; margin: 0 5px;"></span>
-                    <span>${targetPages}</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- PÁGINA DE INTRODUÇÃO -->
-        <div class="page" style="page-break-after: always; padding: 3cm 2.5cm;">
-            <h2 style="margin-bottom: 20px; text-transform: uppercase; border-bottom: 1px solid #ccc; padding-bottom: 10px;">1. Introdução</h2>
-            <p style="text-align: justify; line-height: 1.5;">[Gere texto de introdução...]</p>
-        </div>
-
-        <!-- PÁGINAS DE DESENVOLVIMENTO -->
-        <div class="page" style="page-break-after: always; padding: 3cm 2.5cm;">
-            <h2 style="margin-bottom: 20px; text-transform: uppercase; border-bottom: 1px solid #ccc; padding-bottom: 10px;">2. Desenvolvimento</h2>
-            <div style="text-align: justify; line-height: 1.5;">
-                <p>[Gere muito conteúdo detalhado aqui para preencher as páginas...]</p>
-            </div>
-        </div>
-
-        <!-- PÁGINA DE CONCLUSÃO -->
-        <div class="page" style="page-break-after: always; padding: 3cm 2.5cm;">
-            <h2 style="margin-bottom: 20px; text-transform: uppercase; border-bottom: 1px solid #ccc; padding-bottom: 10px;">Conclusão</h2>
-            <p style="text-align: justify; line-height: 1.5;">[Gere conclusão...]</p>
-        </div>
-
-        <!-- PÁGINA DE BIBLIOGRAFIA -->
-        <div class="page" style="padding: 3cm 2.5cm;">
-            <h2 style="margin-bottom: 20px; text-transform: uppercase; border-bottom: 1px solid #ccc; padding-bottom: 10px;">Bibliografia</h2>
-            <div style="line-height: 1.6;">
-                [Gere bibliografia relevante]
-            </div>
-        </div>
+        IMPORTANTE:
+        1. Gere APENAS o HTML dentro das divs class="page".
+        2. Não use markdown.
+        3. CSS inline para garantir formatação básica.
       `;
 
-      let text = await callBackend({
-        action: 'generate',
-        prompt: promptText
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: promptText
       });
       
+      let text = response.text || "";
+      // Remove blocos de código se a IA os incluir
       text = text.replace(/```html/g, '').replace(/```/g, '');
       return text;
     } catch (error) {
@@ -280,20 +239,19 @@ export const GeminiService = {
     }
   },
 
-  /**
-   * Humanize text by calling backend
-   */
   async humanizeText(text: string, variant: HumanizerVariant): Promise<string> {
     try {
       const prompt = `
         Aja como um falante nativo de ${variant}. Reescreva o texto para torná-lo natural.
         Texto: "${text}"
       `;
-      return await callBackend({
-        action: 'generate',
-        prompt: prompt
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt
       });
+      return response.text || text;
     } catch (error) {
+      console.error("Humanizer Error:", error);
       return text;
     }
   }

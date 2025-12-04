@@ -47,18 +47,15 @@ export default async function handler(req: any, res: any) {
     const { action, prompt, history, message, image, systemInstruction, jsonMode } = body || {};
 
     // 3. Verificação Robusta da API Key
-    // IMPORTANTE: O nome deve corresponder EXATAMENTE ao configurado na Vercel
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.API_KEY;
 
     // Log de segurança para depuração (mostra apenas se existe ou não)
     if (!apiKey) {
-      console.error("[API ERROR] GEMINI_API_KEY não encontrada nas variáveis de ambiente.");
+      console.error("[API ERROR] API_KEY não encontrada nas variáveis de ambiente.");
       res.status(500).json({ 
-        error: 'Configuração de Servidor: GEMINI_API_KEY não encontrada. Verifique as Variáveis de Ambiente na Vercel.' 
+        error: 'Configuração de Servidor: API_KEY não encontrada. Verifique as Variáveis de Ambiente.' 
       });
       return;
-    } else {
-      console.log(`[API SUCCESS] GEMINI_API_KEY carregada. (Inicia com: ${apiKey.substring(0, 4)}...)`);
     }
 
     // 4. Inicialização do Cliente Gemini

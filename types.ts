@@ -12,6 +12,14 @@ export interface Message {
   timestamp: number;
 }
 
+export interface ChatSession {
+  id: string;
+  title: string; // Ex: "Resumo de Biologia"
+  messages: Message[];
+  createdAt: number;
+  lastMessageAt: number;
+}
+
 export interface DocumentData {
   id: string;
   title: string;

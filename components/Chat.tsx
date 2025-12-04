@@ -1,47 +1,67 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, BookOpen, Code, Zap, Sparkles, Paperclip, X } from 'lucide-react';
+import { Send, Image as ImageIcon, Code, Zap, Sparkles, Paperclip, X, FileText, Square, Copy, Check, Globe, BrainCircuit, ArrowUp, Plus, Book, Lightbulb, GraduationCap } from 'lucide-react';
 import { GeminiService } from '../services/geminiService';
-import { Message, User } from '../types';
+import { Message, User, ChatSession } from '../types';
 
 interface ChatProps {
     user: User | null;
     checkUsageLimit: () => boolean;
     onHumanizeRequest: (text: string) => void;
+    currentSession?: ChatSession;
+    onUpdateSession: (messages: Message[]) => void;
 }
 
-export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeRequest }) => {
+const CodeBlock: React.FC<{ code: string, language: string }> = ({ code, language }) => {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+        navigator.clipboard.writeText(code);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+        <div className="my-4 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#0d1117] text-gray-800 dark:text-gray-100 font-mono text-sm shadow-sm">
+            <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-[#161b22] border-b border-gray-200 dark:border-gray-700">
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-semibold uppercase">{language || 'code'}</span>
+                <button 
+                    onClick={handleCopy} 
+                    className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-white transition-colors"
+                >
+                    {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                    {copied ? 'Copiado!' : 'Copiar'}
+                </button>
+            </div>
+            <div className="p-4 overflow-x-auto custom-scrollbar bg-white dark:bg-[#0d1117]">
+                <pre><code>{code}</code></pre>
+            </div>
+        </div>
+    );
+};
+
+export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeRequest, currentSession, onUpdateSession }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<{data: string, type: string, name: string} | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Toggles
+  const [isThinkingEnabled, setIsThinkingEnabled] = useState(false);
+  const [isSearchEnabled, setIsSearchEnabled] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isLoaded = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const handleNewChat = () => {
-        setMessages([]);
-        localStorage.removeItem('iv4_chat_history');
-    };
-    window.addEventListener('iv4-new-chat', handleNewChat);
-
-    const saved = localStorage.getItem('iv4_chat_history');
-    if (saved) {
-      try {
-        setMessages(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to load chat history");
+      if (currentSession) {
+          setMessages(currentSession.messages);
+      } else {
+          setMessages([]);
       }
-    }
-    isLoaded.current = true;
-    return () => window.removeEventListener('iv4-new-chat', handleNewChat);
-  }, []);
+  }, [currentSession?.id]);
 
   useEffect(() => {
-    // Only save if initial load is complete to avoid overwriting storage with empty array on mount
-    if (isLoaded.current) {
-        localStorage.setItem('iv4_chat_history', JSON.stringify(messages));
-    }
     scrollToBottom();
   }, [messages]);
 
@@ -49,20 +69,40 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setSelectedImage(reader.result as string);
+        setSelectedMedia({
+            data: reader.result as string,
+            type: file.type,
+            name: file.name
+        });
       };
       reader.readAsDataURL(file);
     }
   };
 
+  const handleStop = () => {
+      if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+          setIsLoading(false);
+          const newMsgs = [...messages, {
+              id: Date.now().toString(),
+              role: 'model' as const,
+              text: "⏹️ Resposta cancelada pelo usuário.",
+              timestamp: Date.now()
+          }];
+          setMessages(newMsgs);
+          onUpdateSession(newMsgs);
+      }
+  };
+
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;
-    if ((!textToSend.trim() && !selectedImage) || isLoading) return;
+    if ((!textToSend.trim() && !selectedMedia) || isLoading) return;
 
     if (!checkUsageLimit()) return;
 
@@ -70,26 +110,37 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
       id: Date.now().toString(),
       role: 'user',
       text: textToSend,
-      image: selectedImage || undefined,
+      image: selectedMedia?.data || undefined, 
       timestamp: Date.now(),
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    onUpdateSession(newMessages);
+
     setInput('');
-    const imageToSend = selectedImage; // Store ref to send
-    setSelectedImage(null); // Clear UI immediately
+    const mediaToSend = selectedMedia; 
+    setSelectedMedia(null); 
     setIsLoading(true);
 
+    abortControllerRef.current = new AbortController();
+
     try {
-      // Prepare history strictly with text for context (filtering out complex image objects for now for simplicity in history)
-      const history = messages
+      // Filter history for API
+      const history = newMessages
         .filter(m => !m.image) 
         .map(m => ({
             role: m.role,
             parts: [{ text: m.text }]
         }));
 
-      const responseText = await GeminiService.chat(history, userMsg.text, imageToSend || undefined);
+      const responseText = await GeminiService.chat(
+          history, 
+          userMsg.text, 
+          mediaToSend?.data, 
+          mediaToSend?.type,
+          abortControllerRef.current.signal
+      );
 
       const botMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -98,17 +149,25 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
         timestamp: Date.now(),
       };
 
-      setMessages(prev => [...prev, botMsg]);
-    } catch (error) {
-        const errorMsg: Message = {
-            id: (Date.now() + 1).toString(),
-            role: 'model',
-            text: "Erro ao conectar ao servidor. Tente novamente.",
-            timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, errorMsg]);
+      const finalMessages = [...newMessages, botMsg];
+      setMessages(finalMessages);
+      onUpdateSession(finalMessages);
+
+    } catch (error: any) {
+        if (error.message !== 'Geração cancelada pelo usuário.') {
+            const errorMsg: Message = {
+                id: (Date.now() + 1).toString(),
+                role: 'model',
+                text: "⚠️ Erro ao conectar ao servidor. Verifique sua conexão.",
+                timestamp: Date.now(),
+            };
+            const failedMessages = [...newMessages, errorMsg];
+            setMessages(failedMessages);
+            onUpdateSession(failedMessages);
+        }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -119,68 +178,76 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     }
   };
 
-  const suggestions = [
-    { icon: BookOpen, text: "Resuma a Revolução Industrial" },
+  const renderMessageContent = (text: string) => {
+    const parts = text.split(/```(\w*)\n([\s\S]*?)```/g);
+    return parts.map((part, index) => {
+        if (index % 3 === 0) {
+            if (!part.trim()) return null;
+            return <div key={index} className="whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200">{part}</div>;
+        }
+        if (index % 3 === 1) return null;
+        const language = parts[index - 1];
+        return <CodeBlock key={index} code={part} language={language} />;
+    });
+  };
+
+  // Chips matching the provided image EXACTLY
+  const quickActions = [
+    { icon: Book, text: "Resuma a Revolução Industrial" },
     { icon: Zap, text: "Explique Física Quântica simples" },
     { icon: Code, text: "Crie um script Python básico" },
     { icon: Sparkles, text: "Ideias para um projeto de História" },
   ];
 
-  // --- RENDER HELPERS ---
-
+  // --- Empty State View (Centered Layout) ---
   if (messages.length === 0) {
     return (
-        <div className="flex flex-col items-center justify-center h-full px-4 bg-white dark:bg-gray-900 animate-fade-in transition-colors">
-            <div className="w-full max-w-2xl flex flex-col items-center gap-8">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-16 h-16 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl flex items-center justify-center shadow-sm">
-                        <Sparkles size={32} className="text-gray-900 dark:text-white" />
-                    </div>
-                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">Como posso ajudar?</h1>
+        <div className="flex flex-col h-full bg-gray-50 dark:bg-[#030712] text-gray-900 dark:text-white overflow-hidden relative transition-colors duration-300">
+            <div className="flex-grow flex flex-col items-center justify-center px-4 w-full max-w-2xl mx-auto z-10 pb-20">
+                
+                {/* Greeting Icon */}
+                <div className="mb-8 p-5 bg-white dark:bg-[#1f2937]/50 rounded-2xl border border-gray-200 dark:border-white/5 shadow-lg shadow-indigo-500/10">
+                    <Sparkles size={42} className="text-indigo-600 dark:text-white" />
                 </div>
 
-                <div className="w-full relative shadow-lg shadow-gray-200/50 dark:shadow-none rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                    {selectedImage && (
-                        <div className="px-4 pt-4">
-                             <div className="relative inline-block">
-                                <img src={selectedImage} alt="Preview" className="h-16 w-auto rounded-lg border border-gray-200 dark:border-gray-600" />
-                                <button onClick={() => setSelectedImage(null)} className="absolute -top-2 -right-2 bg-gray-900 text-white rounded-full p-0.5 hover:bg-red-500"><X size={12}/></button>
-                             </div>
-                        </div>
-                    )}
-                    <textarea
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Pergunte qualquer coisa..."
-                        className="w-full pl-6 pr-14 py-4 bg-transparent border-none rounded-2xl focus:outline-none focus:ring-0 text-base resize-none text-black dark:text-gray-100 placeholder-gray-400"
-                        rows={1}
-                        style={{ minHeight: '60px' }}
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                        <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
-                        <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
-                            <Paperclip size={18} />
-                        </button>
-                        <button
-                            onClick={() => handleSend()}
-                            disabled={!input.trim() && !selectedImage}
-                            className="p-2 bg-black dark:bg-white text-white dark:text-black rounded-xl hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:bg-gray-300 dark:disabled:bg-gray-600"
-                        >
-                            <Send size={18} />
-                        </button>
-                    </div>
-                </div>
+                {/* Greeting Text */}
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center tracking-tight">
+                    Como posso ajudar?
+                </h1>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
-                    {suggestions.map((s, idx) => (
+                {/* Input Area (Centered) */}
+                <InputArea 
+                    input={input} 
+                    setInput={setInput} 
+                    handleSend={handleSend} 
+                    handleKeyDown={handleKeyDown} 
+                    isLoading={isLoading} 
+                    handleStop={handleStop}
+                    handleFileSelect={handleFileSelect}
+                    selectedMedia={selectedMedia}
+                    setSelectedMedia={setSelectedMedia}
+                    fileInputRef={fileInputRef}
+                    isThinkingEnabled={isThinkingEnabled}
+                    setIsThinkingEnabled={setIsThinkingEnabled}
+                    isSearchEnabled={isSearchEnabled}
+                    setIsSearchEnabled={setIsSearchEnabled}
+                    className="w-full relative mb-10"
+                    placeholder="Pergunte qualquer coisa..."
+                    isCentered={true}
+                />
+
+                {/* Action Chips (Below Input) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
+                    {quickActions.map((action, i) => (
                         <button 
-                            key={idx}
-                            onClick={() => handleSend(s.text)}
-                            className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-xl transition-all text-left group shadow-sm"
+                            key={i}
+                            onClick={() => handleSend(action.text)} 
+                            className="flex items-center gap-3 px-5 py-4 bg-white dark:bg-[#1f2937]/40 hover:bg-gray-100 dark:hover:bg-[#374151] border border-gray-200 dark:border-white/5 hover:border-indigo-300 dark:hover:border-white/10 rounded-2xl transition-all text-left group shadow-sm dark:shadow-none"
                         >
-                            <s.icon size={18} className="text-gray-400 dark:text-gray-500 group-hover:text-black dark:group-hover:text-white" />
-                            <span className="text-sm text-gray-600 dark:text-gray-300 group-hover:text-black dark:group-hover:text-white">{s.text}</span>
+                            <div className="text-gray-500 dark:text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white transition-colors">
+                                <action.icon size={20} />
+                            </div>
+                            <span className="text-sm text-gray-700 dark:text-gray-300 font-medium group-hover:text-indigo-700 dark:group-hover:text-white transition-colors">{action.text}</span>
                         </button>
                     ))}
                 </div>
@@ -189,85 +256,151 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     );
   }
 
+  // --- Active Chat View ---
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-900 relative transition-colors">
-      <div className="flex-grow overflow-y-auto px-4 md:px-0 py-6">
-        <div className="max-w-3xl mx-auto space-y-8">
-            {messages.map((msg) => (
-            <div key={msg.id} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] md:max-w-[90%] ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-                    {msg.image && (
-                        <div className={`mb-2 ${msg.role === 'user' ? 'flex justify-end' : ''}`}>
-                             <img src={msg.image} alt="User upload" className="max-h-64 rounded-lg border border-gray-200 dark:border-gray-700" />
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-[#030712] text-gray-900 dark:text-white transition-colors duration-300">
+      <div className="flex-grow overflow-y-auto px-4 md:px-0 scroll-smooth pb-36">
+        <div className="max-w-3xl mx-auto py-6 space-y-8">
+          {messages.map((msg) => (
+            <div key={msg.id} className="flex flex-col gap-2">
+                
+                {/* User Message */}
+                {msg.role === 'user' && (
+                    <div className="flex justify-end">
+                        <div className="bg-white dark:bg-[#1f2937] px-5 py-3 rounded-2xl rounded-tr-none text-gray-800 dark:text-gray-100 max-w-[85%] leading-relaxed border border-gray-200 dark:border-white/5 shadow-sm">
+                             {msg.image && (
+                                <img src={msg.image} alt="Upload" className="max-h-48 rounded-lg mb-2" />
+                             )}
+                             {msg.text}
                         </div>
-                    )}
-                    <div className={`text-base md:text-lg leading-relaxed whitespace-pre-wrap ${
-                        msg.role === 'user' 
-                        ? 'text-black dark:text-gray-200 font-normal'
-                        : 'text-gray-900 dark:text-gray-100'
-                    }`}>
-                        {msg.text}
                     </div>
-                </div>
-            </div>
-            ))}
+                )}
 
-            {isLoading && (
-                <div className="flex justify-start w-full">
-                    <div className="flex items-center space-x-1 pl-1">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                {/* AI Message */}
+                {msg.role === 'model' && (
+                    <div className="flex gap-4">
+                        <div className="w-8 h-8 rounded-lg bg-[#4f46e5] flex items-center justify-center shrink-0 shadow-sm mt-1">
+                            <Sparkles size={16} className="text-white" />
+                        </div>
+                        <div className="flex-grow min-w-0 pt-1">
+                            <div className="text-gray-800 dark:text-gray-200 text-base leading-relaxed">
+                                {renderMessageContent(msg.text)}
+                            </div>
+                            <div className="flex items-center gap-4 mt-2">
+                                <button onClick={() => onHumanizeRequest(msg.text)} className="p-1 text-gray-400 hover:text-[#4f46e5] dark:text-gray-500 dark:hover:text-[#a78bfa] transition-colors" title="Humanizar">
+                                    <Zap size={16} />
+                                </button>
+                                <button onClick={() => navigator.clipboard.writeText(msg.text)} className="p-1 text-gray-400 hover:text-black dark:text-gray-500 dark:hover:text-white transition-colors" title="Copiar">
+                                    <Copy size={16} />
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            )}
-            <div ref={messagesEndRef} className="h-4" />
+                )}
+            </div>
+          ))}
+          
+          {isLoading && (
+            <div className="flex gap-4">
+               <div className="w-8 h-8 rounded-lg bg-[#4f46e5] flex items-center justify-center shrink-0 animate-pulse">
+                   <Sparkles size={16} className="text-white" />
+               </div>
+               <div className="flex items-center gap-1 mt-3">
+                   <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce"></span>
+                   <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-100"></span>
+                   <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-200"></span>
+               </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} className="h-4" />
         </div>
       </div>
-      
-      {/* Sticky Bottom Input */}
-      <div className="p-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-t border-gray-100 dark:border-gray-800">
-        <div className="max-w-3xl mx-auto relative">
-           {selectedImage && (
-                <div className="absolute bottom-full left-0 mb-2 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
-                     <div className="relative inline-block">
-                        <img src={selectedImage} alt="Preview" className="h-12 w-auto rounded border border-gray-200 dark:border-gray-600" />
-                        <button onClick={() => setSelectedImage(null)} className="absolute -top-2 -right-2 bg-black text-white rounded-full p-0.5"><X size={10}/></button>
-                     </div>
-                </div>
-            )}
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Envie uma mensagem..."
-            className="w-full pl-4 pr-20 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 transition-all resize-none text-black dark:text-white"
-            rows={1}
-            style={{ minHeight: '52px', maxHeight: '150px' }}
-            disabled={isLoading}
-          />
-          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-             <input type="file" ref={fileInputRef} onChange={handleImageSelect} accept="image/*" className="hidden" />
-             <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
-                <Paperclip size={18} />
-             </button>
-              <button
-                onClick={() => handleSend()}
-                disabled={isLoading || (!input.trim() && !selectedImage)}
-                className={`p-2 rounded-lg transition-colors ${
-                  (input.trim() || selectedImage) && !isLoading 
-                  ? 'bg-black dark:bg-white text-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200' 
-                  : 'bg-transparent text-gray-400 cursor-not-allowed'
-                }`}
-              >
-                <Send size={18} />
-              </button>
-          </div>
-        </div>
-        <p className="text-center text-[10px] text-gray-400 dark:text-gray-500 mt-2">
-            IV4 IA pode cometer erros.
-        </p>
-      </div>
+
+      {/* Input Area (Fixed at bottom for active chat) */}
+      <InputArea 
+            input={input} 
+            setInput={setInput} 
+            handleSend={handleSend} 
+            handleKeyDown={handleKeyDown} 
+            isLoading={isLoading} 
+            handleStop={handleStop}
+            handleFileSelect={handleFileSelect}
+            selectedMedia={selectedMedia}
+            setSelectedMedia={setSelectedMedia}
+            fileInputRef={fileInputRef}
+            isThinkingEnabled={isThinkingEnabled}
+            setIsThinkingEnabled={setIsThinkingEnabled}
+            isSearchEnabled={isSearchEnabled}
+            setIsSearchEnabled={setIsSearchEnabled}
+            className="fixed bottom-0 left-0 md:left-0 lg:left-0 right-0 bg-gray-50 dark:bg-[#030712] pt-4 pb-6 px-4 z-20 flex justify-center transition-colors duration-300" // Centered and aware of sidebar overlay
+        />
     </div>
   );
 };
+
+// Reusable Input Component
+const InputArea = ({ 
+    input, setInput, handleSend, handleKeyDown, isLoading, handleStop, 
+    handleFileSelect, selectedMedia, setSelectedMedia, fileInputRef,
+    isThinkingEnabled, setIsThinkingEnabled, isSearchEnabled, setIsSearchEnabled,
+    className, placeholder, isCentered
+}: any) => {
+    return (
+        <div className={className}>
+            <div className={`max-w-3xl w-full ${!isCentered ? 'md:ml-[280px] md:mr-0 transition-all duration-300' : ''}`}> {/* Adjust margin if sidebar is open, handled by parent usually but here we center */}
+                <div className={`bg-white dark:bg-[#1f2937] rounded-2xl p-2 border border-gray-200 dark:border-white/5 shadow-xl dark:shadow-2xl relative flex flex-col transition-all focus-within:border-indigo-500/50 dark:focus-within:border-white/10 ${isCentered ? 'min-h-[60px]' : ''}`}>
+                    
+                    {/* Media Preview */}
+                    {selectedMedia && (
+                        <div className="mx-2 mt-2 mb-1 p-2 bg-gray-100 dark:bg-[#374151] rounded-lg inline-flex items-center gap-2 self-start border border-gray-200 dark:border-transparent">
+                            {selectedMedia.type.includes('image') ? 
+                                <img src={selectedMedia.data} className="h-8 w-8 rounded object-cover" /> : 
+                                <FileText size={20} className="text-gray-600 dark:text-white"/>}
+                            <span className="text-xs text-gray-700 dark:text-gray-300 truncate max-w-[150px]">{selectedMedia.name}</span>
+                            <button onClick={() => setSelectedMedia(null)}><X size={14} className="text-gray-400 hover:text-red-500 dark:hover:text-white" /></button>
+                        </div>
+                    )}
+
+                    <div className="flex items-center w-full">
+                         <textarea
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder={placeholder || "Pergunte qualquer coisa..."}
+                            className="flex-grow bg-transparent border-none text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 px-4 py-3 focus:ring-0 resize-none min-h-[50px] max-h-[200px] outline-none"
+                            rows={1}
+                            style={{ height: 'auto', overflowY: 'hidden' }}
+                        />
+                        
+                         {/* Attachment Button */}
+                         <input 
+                                type="file" 
+                                ref={fileInputRef} 
+                                onChange={handleFileSelect} 
+                                className="hidden" 
+                            />
+                        <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-indigo-600 dark:hover:text-white transition-colors mr-1">
+                             <Paperclip size={20} />
+                        </button>
+
+                         {/* Send Button */}
+                        {isLoading ? (
+                            <button onClick={handleStop} className="p-2 mr-2 rounded-lg bg-gray-200 dark:bg-white text-black hover:opacity-90">
+                                <Square size={16} fill="currentColor" />
+                            </button>
+                        ) : (
+                            <button 
+                                onClick={() => handleSend()} 
+                                disabled={!input.trim() && !selectedMedia}
+                                className="p-2 mr-2 rounded-lg bg-gray-100 dark:bg-[#374151] text-gray-400 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-[#4b5563] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            >
+                                <Send size={20} />
+                            </button>
+                        )}
+                    </div>
+                    
+                </div>
+            </div>
+        </div>
+    );
+}
