@@ -86,6 +86,10 @@ export const GeminiService = {
 
             Nova mensagem do usuário: "${currentMessage}"
 
+            LÓGICA DE DETECÇÃO DE GRUPO VS INDIVIDUAL:
+            - A deteção será refinada na geração, mas tente identificar nomes aqui.
+            - Se o usuário fornecer vários nomes separados por vírgula ou "e", assuma que é um trabalho de GRUPO.
+
             LÓGICA DE EXTRAÇÃO:
             
             1. IDENTIFIQUE O TIPO DE DOCUMENTO ('docType'):
@@ -97,7 +101,13 @@ export const GeminiService = {
             2. PEÇA DETALHES BASEADO NO TIPO:
                
                A) Se for TRABALHO_ESCOLAR / RELATÓRIO:
-                  - Precisa de: Nome da Escola/Instituição, Nome do Aluno (Autor), Nome do Docente/Supervisor, Cadeira/Disciplina, TEMA DO TRABALHO, Classe/Ano, Local (Cidade) e Ano atual.
+                  - Precisa de: 
+                    1. Nome da Escola (ex: Escola Secundária Paulo Samuel Kankhomba).
+                    2. Nome do(s) Aluno(s). Peça todos os nomes.
+                    3. Nome do Docente.
+                    4. Disciplina e Tema.
+                    5. Classe e TURMA (ex: 10ª Classe, Turma B).
+                    6. Local (Cidade).
                
                B) Se for CURRICULO (CV):
                   - Precisa de: Nome Completo, Contactos, Resumo Profissional, Habilidades, Histórico (Educação/Emprego).
@@ -115,11 +125,14 @@ export const GeminiService = {
                 "reply": "Sua pergunta ou confirmação aqui...",
                 "extractedData": {
                     "docType": "TRABALHO_ESCOLAR" | "CURRICULO" | "CARTA" | "GENERICO",
+                    "workMode": "INDIVIDUAL" | "GRUPO",
                     "topic": "Tema ou Assunto Principal",
                     "school": "...", 
                     "student": "...", 
                     "teacher": "...", 
                     "grade": "...", 
+                    "class": "Ex: B",
+                    "subject": "...",
                     "location": "Ex: Lichinga",
                     "year": "2025",
                     "cvData": { "name": "...", "experience": "..." },
@@ -149,96 +162,171 @@ export const GeminiService = {
     }
   },
 
+  async editDocumentFragment(currentHTML: string, userInstruction: string): Promise<string> {
+    try {
+        const prompt = `
+            Você é um assistente de edição de texto inteligente para o 'IV4 Studio'.
+            O usuário quer modificar o documento HTML atual.
+            
+            HTML ATUAL:
+            ${currentHTML}
+            
+            INSTRUÇÃO DO USUÁRIO:
+            "${userInstruction}"
+            
+            AÇÃO:
+            1. Analise o que o usuário quer mudar.
+            2. Se ele pedir para expandir, escreva muito mais conteúdo.
+            3. Se ele pedir para corrigir, corrija.
+            4. Mantenha a estrutura de <div class="page"> intacta.
+            5. Retorne O HTML COMPLETO ATUALIZADO.
+            6. NÃO use Markdown (\`\`\`). Retorne HTML puro.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt
+        });
+
+        let text = response.text || currentHTML;
+        text = text.replace(/```html/g, '').replace(/```/g, '');
+        return text;
+    } catch (error) {
+        console.error("Edit Error:", error);
+        throw error;
+    }
+  },
+
   async generateDocument(data: any, addBorder: boolean = true): Promise<string> {
     try {
       const docType = data.docType || 'GENERICO';
+      const currentMonth = new Date().toLocaleString('pt-PT', { month: 'long' });
+      const currentYear = new Date().getFullYear();
       
-      // Definição de estilos CSS embutidos para garantir formatação exata A4 e bordas
+      // Lógica de Detecção Inteligente de Grupo vs Individual
+      // Se tiver vírgula (,) ou " e " no nome do aluno, assume-se grupo.
+      let isGroup = false;
+      const studentName = data.student || "";
+      
+      if (studentName.includes(',') || studentName.toLowerCase().includes(' e ')) {
+          isGroup = true;
+      }
+      
+      // Forçar modo grupo se o usuário já tinha especificado na negociação, mas verificar nomes também
+      if (data.workMode === 'GRUPO') isGroup = true;
+
+      // Estilo CSS Robusto para evitar "Folhas Brancas" e garantir impressão correta
       const styleBlock = `
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Times+New+Roman&display=swap');
-            body { 
+            
+            /* Garante que o texto seja preto e visível */
+            .iv4-document-container {
                 font-family: 'Times New Roman', serif; 
                 line-height: 1.5; 
-                color: black; 
-                margin: 0;
-                padding: 0;
+                color: black !important;
+                background-color: transparent;
             }
+            
+            /* Configuração da Página A4 */
             .page {
                 width: 21cm;
-                height: 29.7cm;
-                padding: 3cm 2.5cm 2.5cm 3cm; /* Margens ABNT/Padrão: Sup 3, Dir 2.5, Inf 2.5, Esq 3 */
-                background: white;
+                min-height: 29.7cm;
+                padding: 3cm 2.5cm 2.5cm 3cm; /* Margens ABNT */
+                background: white !important;
+                color: black !important;
                 box-sizing: border-box;
-                overflow: hidden;
+                margin: 0 auto 20px auto;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                 position: relative;
+                overflow: visible;
                 page-break-after: always;
-                font-size: 12pt;
-                text-align: justify;
+                break-after: page;
             }
-            /* Capa com Esquadria Dupla */
+
+            /* Estilos de Impressão (PDF) */
+            @media print {
+                body * {
+                    visibility: hidden;
+                }
+                #printable-content, #printable-content * {
+                    visibility: visible;
+                }
+                #printable-content {
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    width: 100%;
+                }
+                .page {
+                    margin: 0 !important;
+                    box-shadow: none !important;
+                    height: 29.7cm !important;
+                    overflow: hidden !important;
+                    page-break-after: always;
+                    break-after: page;
+                }
+                /* Esconde UI do editor na impressão */
+                .drag-handle, .iv4-ui-element { display: none !important; }
+            }
+
+            /* Capa - Borda e Layout */
             .page-cover {
-                padding: 1cm !important; /* Margem menor para dar espaço à borda */
                 display: flex;
                 flex-direction: column;
+                justify-content: space-between;
+                text-align: center;
+                border: none;
             }
             .cover-border-outer {
                 border: 3px solid black;
                 height: 100%;
                 width: 100%;
-                padding: 4px; /* Espaço entre borda grossa e fina */
+                padding: 4px;
                 box-sizing: border-box;
+                display: flex;
+                flex-direction: column;
             }
             .cover-border-inner {
                 border: 1px solid black;
-                height: 100%;
+                flex-grow: 1;
                 width: 100%;
                 display: flex;
                 flex-direction: column;
                 justify-content: space-between;
                 align-items: center;
-                padding: 2cm 1cm;
+                padding: 1cm;
                 box-sizing: border-box;
-                text-align: center;
             }
             
-            /* Títulos e Textos */
-            h1 { font-size: 14pt; font-weight: bold; text-transform: uppercase; margin-bottom: 0.5cm; text-align: center; }
-            h2 { font-size: 12pt; font-weight: bold; text-transform: uppercase; margin-top: 1cm; margin-bottom: 0.5cm; text-align: left; }
-            h3 { font-size: 12pt; font-weight: bold; margin-top: 0.5cm; text-align: left; }
-            p { margin-bottom: 0.5cm; }
-            
-            /* Caixa de texto da Folha de Rosto */
-            .folha-rosto-container {
-                height: 100%;
+            /* Contra Capa */
+            .page-back-cover {
                 display: flex;
                 flex-direction: column;
-                justify-content: space-between;
-                align-items: center;
+                text-align: center;
             }
-            .natureza-trabalho-box {
-                width: 55%;
-                margin-left: 45%; /* Joga para a direita */
-                font-size: 10pt;
-                line-height: 1.2;
-                margin-top: 2cm;
-                margin-bottom: 2cm;
+            .assignment-block {
+                width: 60%;
+                margin-left: 40%;
                 text-align: justify;
-                border: 1px solid black; /* Borda fina para destacar no exemplo, opcional */
-                padding: 10px;
+                font-size: 11pt;
+                margin-top: 4cm;
+                margin-bottom: 4cm;
             }
-            
-            /* Elementos Centrados */
-            .centered { text-align: center; }
-            .uppercase { text-transform: uppercase; }
-            .bold { font-weight: bold; }
-            
-            /* Rodapé de Data */
-            .footer-date { margin-top: auto; text-align: center; font-weight: bold; }
+
+            /* Texto */
+            h1 { font-size: 16pt; font-weight: bold; text-transform: uppercase; margin-bottom: 1cm; text-align: center; color: black; }
+            h2 { font-size: 14pt; font-weight: bold; text-transform: uppercase; margin-top: 1cm; margin-bottom: 0.5cm; text-align: left; color: black; }
+            h3 { font-size: 12pt; font-weight: bold; margin-top: 0.5cm; text-align: left; color: black; }
+            p { margin-bottom: 0.5cm; text-indent: 1.25cm; text-align: justify; color: black; }
             
             /* Índice */
-            .toc-item { display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; margin-bottom: 5px; }
-            .toc-page { font-weight: bold; }
+            .toc-item { display: flex; justify-content: space-between; border-bottom: 1px dotted #000; margin-bottom: 10px; }
+            .toc-text { background: white; padding-right: 5px; font-weight: bold; }
+            .toc-page { background: white; padding-left: 5px; }
+
+            /* Listas */
+            .student-list { list-style: none; padding: 0; font-weight: bold; margin: 1cm 0; font-size: 12pt; }
         </style>
       `;
       
@@ -246,76 +334,121 @@ export const GeminiService = {
       
       if (docType === 'TRABALHO_ESCOLAR') {
           promptContext = `
-            TIPO: RELATÓRIO DE INVESTIGAÇÃO / TRABALHO ACADÉMICO FORMAL (Moçambique).
+            Você é um assistente especializado em gerar trabalhos escolares académicos para Moçambique.
             
-            DADOS PARA PREENCHER:
-            - Instituição: ${data.school || "INSTITUTO DE FORMAÇÃO"}
-            - Autor: ${data.student || "Nome do Aluno"}
-            - Título/Tema: ${data.topic || data.theme || "TEMA DO TRABALHO"}
-            - Local/Data: ${data.location || "Moçambique"}, ${data.year || "2025"}
-            - Texto da Folha de Rosto: "Trabalho de campo/investigação a ser apresentado na instituição ${data.school || ""}, na disciplina de ${data.subject || "Investigação"}, como requisito de avaliação sob supervisão do docente: ${data.teacher || "Nome do Docente"}."
-            
-            ESTRUTURA OBRIGATÓRIA (Crie cada página dentro de uma <div class="page">):
-            
-            PÁGINA 1: CAPA (Use classes .page-cover, .cover-border-outer, .cover-border-inner)
-            - Topo: Nome da Instituição (Maiúsculas, Negrito).
-            - Centro Superior: Nome do Autor.
-            - Centro Meio: TÍTULO DO TRABALHO (Maiúsculas, Negrito, Grande).
-            - Base: Local e Data.
-            
-            PÁGINA 2: FOLHA DE ROSTO (Sem borda dupla, layout padrão)
-            - Topo: Nome do Autor.
-            - Centro: Título do Trabalho.
-            - Meio-Direita (Classe .natureza-trabalho-box): O texto explicativo sobre a natureza do trabalho (requisito parcial, nome do docente, etc).
-            - Base: Local e Data.
-            
-            PÁGINA 3: ÍNDICE
-            - Título "ÍNDICE".
-            - Lista simulada de tópicos (Introdução... pág 4, etc).
-            
-            PÁGINA 4: INTRODUÇÃO
-            - Título "1. INTRODUÇÃO".
-            - Texto introdutório bem desenvolvido sobre "${data.topic}".
-            - Incluir subseção "1.1 Problema".
-            - Incluir subseção "1.2 Objetivos" (Geral e Específicos).
-            - Incluir subseção "1.3 Justificativa".
-            
-            PÁGINA 5: DESENVOLVIMENTO / FUNDAMENTAÇÃO TEÓRICA
-            - Título "2. FUNDAMENTAÇÃO TEÓRICA".
-            - Desenvolva o tema com base em autores fictícios ou reais (ex: Piaget, Vygotsky se for educação, ou relevantes à área).
-            - Cite pelo menos 2 definições ou conceitos.
-            
-            PÁGINA 6: CONCLUSÃO E BIBLIOGRAFIA
-            - Título "3. CONCLUSÃO".
-            - Breve fecho.
-            - Título "4. BIBLIOGRAFIA".
-            - Lista de 3 referências bibliográficas formatadas (APA).
-          `;
-      } else if (docType === 'CURRICULO') {
-          promptContext = `
-            TIPO: CURRICULUM VITAE (CV).
-            ESTRUTURA: Cabeçalho, Resumo, Experiência, Educação.
-            Use <div class="page">. Formatação limpa e profissional.
+            REGRAS CRÍTICAS:
+            1. NÃO RESUMA NADA. O usuário quer um trabalho COMPLETO, EXTENSO e DETALHADO. Traga muitas informações.
+            2. Se o texto for longo, divida em várias páginas usando <div class="page">.
+            3. Detecte Grupo vs Individual AUTOMATICAMENTE: 
+               - Nomes fornecidos: "${studentName}".
+               - Se houver múltiplos nomes: Trate como TRABALHO EM GRUPO (Discentes, Nós, O grupo).
+               - Se houver apenas um nome: Trate como TRABALHO INDIVIDUAL (Discente, Eu, O aluno).
+
+            ESTRUTURA OBRIGATÓRIA (Use HTML puro):
+
+            --- PÁGINA 1: CAPA ---
+            <div class="page page-cover">
+                <div class="cover-border-outer">
+                    <div class="cover-border-inner">
+                        <div>
+                            <p style="font-weight:bold; font-size:14pt; margin:0;">${data.school ? data.school.toUpperCase() : "NOME DA ESCOLA"}</p>
+                        </div>
+                        
+                        <div style="margin: auto 0;">
+                            <h1 style="margin-bottom: 0.5cm;">${data.topic ? data.topic.toUpperCase() : "TEMA DO TRABALHO"}</h1>
+                            <p style="font-weight:bold; font-size:12pt;">${data.subject || "Disciplina"}</p>
+                        </div>
+                        
+                        <div style="width: 100%;">
+                            <p style="font-weight:bold;">${isGroup ? "Discentes / Elementos do Grupo:" : "Discente / Aluno:"}</p>
+                            <ul class="student-list">
+                                ${studentName.split(/,| e /).map((n: string) => `<li>${n.trim()}</li>`).join('')}
+                            </ul>
+                            <p style="margin-top: 1cm;">Docente: ${data.teacher || "Nome do Docente"}</p>
+                        </div>
+
+                        <div>
+                            <p style="margin:0;">${data.location || "Cidade"}, ${data.month || currentMonth} de ${data.year || currentYear}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            --- PÁGINA 2: CONTRA CAPA (Folha de Rosto) ---
+            <div class="page page-back-cover">
+                <div style="margin-top: 2cm;">
+                    <p style="font-weight:bold; font-size:12pt;">${studentName}</p>
+                </div>
+
+                <div style="margin-top: 5cm;">
+                     <h1 style="font-size:16pt;">${data.topic ? data.topic.toUpperCase() : "TEMA"}</h1>
+                </div>
+
+                <div class="assignment-block">
+                    <p style="text-indent: 0;">Trabalho de aplicação de carácter avaliativo da disciplina de ${data.subject || "Disciplina"}, leccionado pelo(a) docente: ${data.teacher || "Nome do Docente"} para efeitos de avaliação na ${data.grade || "X"} Classe, Turma ${data.class || "X"}.</p>
+                </div>
+
+                <div style="margin-top: auto;">
+                    <p>${data.location || "Local"}, ${data.year || currentYear}</p>
+                </div>
+            </div>
+
+            --- PÁGINA 3: ÍNDICE ---
+            <div class="page">
+                <h2 style="text-align:center;">ÍNDICE</h2>
+                <div class="toc-item"><span class="toc-text">1. Introdução</span><span class="toc-page">4</span></div>
+                <div class="toc-item"><span class="toc-text">2. Desenvolvimento</span><span class="toc-page">5</span></div>
+                <div class="toc-item"><span class="toc-text">3. Conclusão</span><span class="toc-page">X</span></div>
+                <div class="toc-item"><span class="toc-text">4. Bibliografia</span><span class="toc-page">Y</span></div>
+            </div>
+
+            --- PÁGINA 4: INTRODUÇÃO ---
+            <div class="page">
+                <h2>1. INTRODUÇÃO</h2>
+                <p>Escreva uma introdução longa, de pelo menos 4 a 6 parágrafos, contextualizando o tema ${data.topic}. Fale sobre a importância, objetivos gerais e específicos e metodologia usada.</p>
+            </div>
+
+            --- PÁGINAS 5+: DESENVOLVIMENTO (EXTENSO) ---
+            <div class="page">
+                <h2>2. DESENVOLVIMENTO</h2>
+                <p>Desenvolva o tema profundamente. Use subtítulos (2.1, 2.2, etc.). Traga definições, características, exemplos, histórico. NÃO RESUMA. O texto deve ocupar toda a folha e se necessário crie mais páginas &lt;div class="page"&gt;.</p>
+                <p>Informação detalhada é essencial.</p>
+            </div>
+
+             --- PÁGINA SEPARADA: CONCLUSÃO ---
+            <div class="page">
+                <h2>3. CONCLUSÃO</h2>
+                <p>Conclusão detalhada retomando os objetivos. Mínimo 3 parágrafos.</p>
+            </div>
+
+             --- PÁGINA SEPARADA: BIBLIOGRAFIA ---
+            <div class="page">
+                <h2>4. REFERÊNCIAS BIBLIOGRÁFICAS</h2>
+                <p>Liste referências bibliográficas fictícias mas plausíveis (livros, artigos) formatadas normas APA 6ª ou 7ª edição.</p>
+            </div>
           `;
       } else {
           promptContext = `
-            TIPO: DOCUMENTO GERAL.
+            TIPO: DOCUMENTO GERAL (${docType}).
             TEMA: ${data.topic}.
-            Use <div class="page">. Título e parágrafos.
+            Gere um documento profissional com capa e conteúdo extenso.
+            Use <div class="page"> para separar páginas.
+            NÃO RESUMA.
           `;
       }
 
       const promptText = `
-        Gere um DOCUMENTO HTML COMPLETO.
+        Gere um DOCUMENTO HTML COMPLETO para impressão.
         
-        INSTRUÇÕES TÉCNICAS:
-        1. Inclua o bloco de estilo CSS fornecido abaixo exatemente como está.
-        2. Use APENAS HTML. Não use Markdown (nada de \`\`\`).
-        3. O conteúdo deve estar dentro de tags <div class="page"> para garantir a quebra de página.
+        INSTRUÇÕES:
+        1. Inclua o bloco de estilo CSS fornecido EXATAMENTE no início.
+        2. Retorne APENAS HTML válido.
+        3. Use a estrutura de <div class="page"> rigorosamente.
+        4. O conteúdo deve ser rico, académico e extenso (NÃO RESUMIDO).
         
         ${styleBlock}
         
-        CONTEÚDO E ESTRUTURA DO DOCUMENTO:
+        CONTEÚDO:
         ${promptContext}
       `;
 
@@ -325,7 +458,6 @@ export const GeminiService = {
       });
       
       let text = response.text || "";
-      // Remove blocos de código se a IA os incluir
       text = text.replace(/```html/g, '').replace(/```/g, '');
       return text;
     } catch (error) {

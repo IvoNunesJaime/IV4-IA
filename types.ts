@@ -27,6 +27,14 @@ export interface DocumentData {
   createdAt: number;
 }
 
+export interface SavedDocument {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: number;
+  metadata: any;
+}
+
 export enum HumanizerVariant {
   PT_PT = 'Português de Portugal',
   PT_AO = 'Português de Angola',

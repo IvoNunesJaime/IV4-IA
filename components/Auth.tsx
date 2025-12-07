@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { Mail, Lock, User as UserIcon, Chrome, X, Sparkles, Eye, EyeOff, ArrowRight, BookOpen, FileText, Zap } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, Chrome, X, Sparkles, Eye, EyeOff, ArrowRight, BookOpen, FileText, Zap, AlertCircle } from 'lucide-react';
 
 interface AuthProps {
   isOpen: boolean;
@@ -16,43 +16,49 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
   const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
-    // Simulação de delay de banco de dados
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    setError(null);
 
-    // AQUI: Em um app real, você faria uma chamada fetch para seu backend (ex: Supabase, Firebase)
-    // const response = await fetch('/api/login', { method: 'POST', body: ... })
-    
-    const fakeUser: User = {
-      id: Date.now().toString(),
-      email: email,
-      name: name || email.split('@')[0],
-    };
-    
-    localStorage.setItem('iv4_user', JSON.stringify(fakeUser));
-    onLogin(fakeUser);
-    setIsLoading(false);
+    // Simulated Authentication
+    setTimeout(() => {
+        if (password.length < 6) {
+             setError("A senha deve ter pelo menos 6 caracteres.");
+             setIsLoading(false);
+             return;
+        }
+
+        // Mock User
+        const mockUser: User = {
+            id: Date.now().toString(),
+            email: email,
+            name: name || email.split('@')[0] || 'Utilizador',
+        };
+        
+        onLogin(mockUser);
+        setIsLoading(false);
+    }, 1500);
   };
 
   const handleGoogleLogin = async () => {
       setIsLoading(true);
-      // Simulação de Auth Google
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      setError(null);
       
-      const fakeGoogleUser: User = {
-          id: 'google-123',
-          email: 'user@gmail.com', // In a real app this would come from the provider
-          name: 'Utilizador Google'
-      };
-      localStorage.setItem('iv4_user', JSON.stringify(fakeGoogleUser));
-      onLogin(fakeGoogleUser);
-      setIsLoading(false);
+      // Simulated Google Auth
+      setTimeout(() => {
+          const mockUser: User = {
+              id: 'google_' + Date.now().toString(),
+              email: 'usuario.google@exemplo.com',
+              name: 'Utilizador Google',
+          };
+          onLogin(mockUser);
+          setIsLoading(false);
+      }, 1500);
   }
 
   return (
@@ -113,6 +119,13 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
                     </>
                 )}
             </div>
+
+            {error && (
+                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+                    <AlertCircle size={16} />
+                    {error}
+                </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
@@ -196,7 +209,7 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
             <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
             {isLogin ? 'Não tem uma conta?' : 'Já tem uma conta?'}
             <button
-                onClick={() => setIsLogin(!isLogin)}
+                onClick={() => { setIsLogin(!isLogin); setError(null); }}
                 className="ml-1 font-semibold text-indigo-600 hover:text-indigo-800 dark:hover:text-indigo-400 focus:outline-none hover:underline"
             >
                 {isLogin ? 'Inscrever-se' : 'Entrar'}

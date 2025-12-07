@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
+  // Initialization & Auth Listener
   useEffect(() => {
     // Handle Dark Mode Class
     if (isDarkMode) {
@@ -32,11 +33,17 @@ const App: React.FC = () => {
         document.documentElement.classList.remove('dark');
     }
 
+    // Restore User from LocalStorage (Simulation)
     const savedUser = localStorage.getItem('iv4_user');
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
+        try {
+            setUser(JSON.parse(savedUser));
+        } catch (e) {
+            console.error("Failed to parse user from local storage");
+        }
     }
     
+    // Check usage from local storage
     const savedUsage = localStorage.getItem('iv4_usage_count');
     if (savedUsage) setUsageCount(parseInt(savedUsage));
 
@@ -124,13 +131,14 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('iv4_user');
     setUser(null);
+    localStorage.removeItem('iv4_user');
     setCurrentView(AppView.CHAT);
   };
 
   const handleLoginSuccess = (loggedInUser: User) => {
     setUser(loggedInUser);
+    localStorage.setItem('iv4_user', JSON.stringify(loggedInUser));
     setIsAuthModalOpen(false);
     setAuthReason('user_action');
   };
