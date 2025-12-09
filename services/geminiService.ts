@@ -86,34 +86,40 @@ export const GeminiService = {
 
             Nova mensagem do usuário: "${currentMessage}"
 
+            LÓGICA DE DETECÇÃO DE TIPO:
+            - Se o usuário falar "Relatório", "Relatório de Estágio", "Investigação", classifique como 'RELATORIO'.
+            - Se o usuário falar "Trabalho", "Trabalho de...", "Pesquisa", classifique como 'TRABALHO_ESCOLAR'.
+
             LÓGICA DE DETECÇÃO DE GRUPO VS INDIVIDUAL:
-            - A deteção será refinada na geração, mas tente identificar nomes aqui.
-            - Se o usuário fornecer vários nomes separados por vírgula ou "e", assuma que é um trabalho de GRUPO.
+            - Tente identificar nomes aqui.
+            - Se houver múltiplos nomes: workMode = 'GRUPO'.
+            - Se houver um nome: workMode = 'INDIVIDUAL'.
 
             LÓGICA DE EXTRAÇÃO:
             
             1. IDENTIFIQUE O TIPO DE DOCUMENTO ('docType'):
-               - 'TRABALHO_ESCOLAR': Se pedir trabalho, pesquisa, relatório, TPC, projeto.
-               - 'CURRICULO': Se pedir CV, curriculum vitae.
-               - 'CARTA': Se pedir carta, requerimento, declaração.
-               - 'GENERICO': Outros.
+               - 'TRABALHO_ESCOLAR'
+               - 'RELATORIO'
+               - 'CURRICULO'
+               - 'CARTA'
+               - 'GENERICO'
 
             2. PEÇA DETALHES BASEADO NO TIPO:
                
-               A) Se for TRABALHO_ESCOLAR / RELATÓRIO:
+               A) Se for TRABALHO_ESCOLAR ou RELATORIO:
                   - Precisa de: 
-                    1. Nome da Escola (ex: Escola Secundária Paulo Samuel Kankhomba).
-                    2. Nome do(s) Aluno(s). Peça todos os nomes.
-                    3. Nome do Docente.
-                    4. Disciplina e Tema.
-                    5. Classe e TURMA (ex: 10ª Classe, Turma B).
+                    1. Nome da Escola / Instituto (ex: IFP, UP, Escola Secundária...).
+                    2. Nome do(s) Aluno(s) / Autor(es).
+                    3. Nome do Docente / Supervisor.
+                    4. Disciplina / Cadeira e Tema.
+                    5. Classe/Ano e Turma.
                     6. Local (Cidade).
                
                B) Se for CURRICULO (CV):
-                  - Precisa de: Nome Completo, Contactos, Resumo Profissional, Habilidades, Histórico (Educação/Emprego).
+                  - Precisa de: Nome Completo, Contactos, Resumo Profissional, Habilidades, Histórico.
                
                C) Se for CARTA / REQUERIMENTO:
-                  - Precisa de: Quem envia (Remetente), Quem recebe (Destinatário), Assunto, Objetivo da carta.
+                  - Precisa de: Quem envia (Remetente), Quem recebe (Destinatário), Assunto, Objetivo.
 
             3. REGRAS DE RETORNO:
                - Se faltam dados críticos para aquele tipo, sua 'reply' deve pedir esses dados educadamente.
@@ -124,7 +130,7 @@ export const GeminiService = {
             {
                 "reply": "Sua pergunta ou confirmação aqui...",
                 "extractedData": {
-                    "docType": "TRABALHO_ESCOLAR" | "CURRICULO" | "CARTA" | "GENERICO",
+                    "docType": "TRABALHO_ESCOLAR" | "RELATORIO" | "CURRICULO" | "CARTA" | "GENERICO",
                     "workMode": "INDIVIDUAL" | "GRUPO",
                     "topic": "Tema ou Assunto Principal",
                     "school": "...", 
@@ -204,23 +210,33 @@ export const GeminiService = {
       const currentYear = new Date().getFullYear();
       
       // Lógica de Detecção Inteligente de Grupo vs Individual
-      // Se tiver vírgula (,) ou " e " no nome do aluno, assume-se grupo.
       let isGroup = false;
       const studentName = data.student || "";
       
-      if (studentName.includes(',') || studentName.toLowerCase().includes(' e ')) {
+      // Verifica se há vírgula, " e ", ou quebras de linha para inferir grupo
+      if (studentName.includes(',') || studentName.toLowerCase().includes(' e ') || studentName.includes('\n')) {
           isGroup = true;
       }
-      
-      // Forçar modo grupo se o usuário já tinha especificado na negociação, mas verificar nomes também
       if (data.workMode === 'GRUPO') isGroup = true;
+      if (data.workMode === 'INDIVIDUAL') isGroup = false;
 
-      // Estilo CSS Robusto para evitar "Folhas Brancas" e garantir impressão correta
+      const studentLabel = isGroup ? "Discentes:" : "Discente:";
+      
+      // Label dinâmico para "Trabalho em grupo/individual"
+      const subjectText = data.subject ? `de ${data.subject}` : "";
+      const workTypeLabel = isGroup 
+          ? `Trabalho em grupo ${subjectText}` 
+          : `Trabalho individual ${subjectText}`;
+
+      // Detalhes da classe/turma
+      const classInfo = `${data.grade || "10ª"} Classe, Turma '${data.class || "A"}'`;
+
+
+      // Estilo CSS Robusto
       const styleBlock = `
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Times+New+Roman&display=swap');
             
-            /* Garante que o texto seja preto e visível */
             .iv4-document-container {
                 font-family: 'Times New Roman', serif; 
                 line-height: 1.5; 
@@ -228,227 +244,256 @@ export const GeminiService = {
                 background-color: transparent;
             }
             
-            /* Configuração da Página A4 */
+            /* General Page Settings */
             .page {
                 width: 21cm;
-                min-height: 29.7cm;
-                padding: 3cm 2.5cm 2.5cm 3cm; /* Margens ABNT */
+                min-height: 29.7cm; /* Default for content pages */
+                padding: 2.5cm; /* Standard Margin */
                 background: white !important;
                 color: black !important;
                 box-sizing: border-box;
                 margin: 0 auto 20px auto;
                 box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                 position: relative;
-                overflow: visible;
+                overflow: hidden;
                 page-break-after: always;
                 break-after: page;
+                display: flex;
+                flex-direction: column;
             }
 
-            /* Estilos de Impressão (PDF) */
+            /* CAPA E CONTRA CAPA: Altura Fixa para layout perfeito */
+            .page.cover-page {
+                height: 29.7cm; /* Fixed A4 Height for covers */
+                padding: 1.5cm; /* Reduced padding to allow border to fit */
+            }
+
             @media print {
-                body * {
-                    visibility: hidden;
-                }
-                #printable-content, #printable-content * {
-                    visibility: visible;
-                }
-                #printable-content {
-                    position: absolute;
-                    left: 0;
-                    top: 0;
-                    width: 100%;
-                }
+                body * { visibility: hidden; }
+                #printable-content, #printable-content * { visibility: visible; }
+                #printable-content { position: absolute; left: 0; top: 0; width: 100%; }
                 .page {
                     margin: 0 !important;
                     box-shadow: none !important;
-                    height: 29.7cm !important;
-                    overflow: hidden !important;
+                    border: none !important;
+                    overflow: visible !important;
                     page-break-after: always;
                     break-after: page;
+                    padding: 2.5cm;
                 }
-                /* Esconde UI do editor na impressão */
-                .drag-handle, .iv4-ui-element { display: none !important; }
+                .page.cover-page {
+                    padding: 1.5cm;
+                    height: 29.7cm !important;
+                }
             }
 
-            /* Capa - Borda e Layout */
-            .page-cover {
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between;
-                text-align: center;
-                border: none;
-            }
-            .cover-border-outer {
-                border: 3px solid black;
+            /* Borda da Página (Esquadria Académica) - SÓ NA CAPA */
+            .page-border {
+                border: 4px double black; /* Borda dupla grossa */
                 height: 100%;
                 width: 100%;
-                padding: 4px;
+                padding: 1cm;
                 box-sizing: border-box;
-                display: flex;
-                flex-direction: column;
-            }
-            .cover-border-inner {
-                border: 1px solid black;
-                flex-grow: 1;
-                width: 100%;
                 display: flex;
                 flex-direction: column;
                 justify-content: space-between;
                 align-items: center;
+            }
+
+            /* Container para Contra Capa (Sem Borda, mas mesmo layout) */
+            .page-content-wrapper {
+                height: 100%;
+                width: 100%;
                 padding: 1cm;
                 box-sizing: border-box;
-            }
-            
-            /* Contra Capa */
-            .page-back-cover {
                 display: flex;
                 flex-direction: column;
+                justify-content: space-between; /* Garante que o footer vá para baixo */
+                align-items: center;
+                border: none;
+            }
+
+            /* Layout Interno Comum */
+            .header-school {
                 text-align: center;
-            }
-            .assignment-block {
-                width: 60%;
-                margin-left: 40%;
-                text-align: justify;
-                font-size: 11pt;
-                margin-top: 4cm;
-                margin-bottom: 4cm;
+                font-size: 16pt;
+                font-weight: bold;
+                text-transform: uppercase;
+                margin-top: 1cm;
+                width: 100%;
             }
 
-            /* Texto */
-            h1 { font-size: 16pt; font-weight: bold; text-transform: uppercase; margin-bottom: 1cm; text-align: center; color: black; }
-            h2 { font-size: 14pt; font-weight: bold; text-transform: uppercase; margin-top: 1cm; margin-bottom: 0.5cm; text-align: left; color: black; }
-            h3 { font-size: 12pt; font-weight: bold; margin-top: 0.5cm; text-align: left; color: black; }
-            p { margin-bottom: 0.5cm; text-indent: 1.25cm; text-align: justify; color: black; }
+            .sub-header-center {
+                text-align: center;
+                font-size: 12pt;
+                margin-top: 2cm;
+                width: 100%;
+            }
+
+            .theme-area {
+                margin-top: 2cm;
+                text-align: center;
+                font-size: 16pt;
+                font-weight: bold;
+                width: 100%;
+            }
+
+            /* SEÇÃO DE ALUNOS - ALINHADA À ESQUERDA */
+            .student-section {
+                margin-top: 2cm;
+                width: 100%;
+                text-align: left; /* Garante alinhamento à esquerda */
+                padding-left: 1cm; /* Ligeiro recuo */
+            }
+
+            .student-label {
+                font-weight: bold;
+                font-size: 12pt;
+                margin-bottom: 10px;
+                display: block;
+            }
+
+            .student-list {
+                list-style: none;
+                padding: 0;
+                margin: 0;
+                font-size: 12pt;
+            }
+            .student-list li {
+                margin-bottom: 5px;
+            }
+
+            /* Box de Avaliação (Contra Capa) - ALINHADA À DIREITA */
+            .evaluation-container {
+                width: 100%;
+                display: flex;
+                justify-content: flex-end; /* Joga para a direita */
+                margin-top: 1cm;
+                margin-bottom: auto; /* Empurra para cima, deixando footer em baixo */
+            }
             
-            /* Índice */
-            .toc-item { display: flex; justify-content: space-between; border-bottom: 1px dotted #000; margin-bottom: 10px; }
-            .toc-text { background: white; padding-right: 5px; font-weight: bold; }
-            .toc-page { background: white; padding-left: 5px; }
+            .evaluation-box {
+                width: 60%;
+                border: 1px solid black;
+                padding: 15px;
+                font-size: 11pt;
+                text-align: justify;
+                background: white;
+            }
 
-            /* Listas */
-            .student-list { list-style: none; padding: 0; font-weight: bold; margin: 1cm 0; font-size: 12pt; }
+            /* Footer Info (Cidade e Data) - Sempre no fundo */
+            .footer-info {
+                margin-top: auto; /* Empurra para o fundo absoluto do container */
+                text-align: center;
+                font-weight: bold;
+                font-size: 12pt;
+                width: 100%;
+                padding-bottom: 0.5cm;
+            }
+
+            h1, h2, h3, p { color: black; }
         </style>
       `;
       
       let promptContext = "";
       
-      if (docType === 'TRABALHO_ESCOLAR') {
+      if (docType === 'TRABALHO_ESCOLAR' || docType === 'RELATORIO') {
           promptContext = `
-            Você é um assistente especializado em gerar trabalhos escolares académicos para Moçambique.
+            Você é um assistente acadêmico rigoroso (Padrão Moçambique).
             
-            REGRAS CRÍTICAS:
-            1. NÃO RESUMA NADA. O usuário quer um trabalho COMPLETO, EXTENSO e DETALHADO. Traga muitas informações.
-            2. Se o texto for longo, divida em várias páginas usando <div class="page">.
-            3. Detecte Grupo vs Individual AUTOMATICAMENTE: 
-               - Nomes fornecidos: "${studentName}".
-               - Se houver múltiplos nomes: Trate como TRABALHO EM GRUPO (Discentes, Nós, O grupo).
-               - Se houver apenas um nome: Trate como TRABALHO INDIVIDUAL (Discente, Eu, O aluno).
+            INSTRUÇÃO MESTRA: 
+            1. A CAPA (Página 1) DEVE ter a Esquadria (Borda Dupla).
+            2. A CONTRA CAPA (Página 2) NÃO DEVE ter Esquadria, apenas texto organizado.
+            3. A CIDADE e DATA devem ficar no FIM da página.
 
-            ESTRUTURA OBRIGATÓRIA (Use HTML puro):
+            DADOS:
+            - Escola: ${data.school || "Escola Secundária..."}
+            - Tipo: ${workTypeLabel}
+            - Turma Info: ${classInfo}
+            - Tema: ${data.topic || "Tema do Trabalho"}
+            - Alunos: ${studentName}
+            - Label Aluno: ${studentLabel}
+            - Docente: ${data.teacher || "Nome do Docente"}
+            - Cidade: ${data.location || "Lichinga"}
+            - Data: ${currentMonth} de ${currentYear}
 
-            --- PÁGINA 1: CAPA ---
-            <div class="page page-cover">
-                <div class="cover-border-outer">
-                    <div class="cover-border-inner">
-                        <div>
-                            <p style="font-weight:bold; font-size:14pt; margin:0;">${data.school ? data.school.toUpperCase() : "NOME DA ESCOLA"}</p>
-                        </div>
-                        
-                        <div style="margin: auto 0;">
-                            <h1 style="margin-bottom: 0.5cm;">${data.topic ? data.topic.toUpperCase() : "TEMA DO TRABALHO"}</h1>
-                            <p style="font-weight:bold; font-size:12pt;">${data.subject || "Disciplina"}</p>
-                        </div>
-                        
-                        <div style="width: 100%;">
-                            <p style="font-weight:bold;">${isGroup ? "Discentes / Elementos do Grupo:" : "Discente / Aluno:"}</p>
-                            <ul class="student-list">
-                                ${studentName.split(/,| e /).map((n: string) => `<li>${n.trim()}</li>`).join('')}
-                            </ul>
-                            <p style="margin-top: 1cm;">Docente: ${data.teacher || "Nome do Docente"}</p>
-                        </div>
+            --- PÁGINA 1: CAPA (COM ESQUADRIA) ---
+            Estrutura HTML Obrigatória:
+            <div class="page cover-page"><div class="page-border">
+                
+                <div class="header-school">${data.school || "ESCOLA SECUNDÁRIA..."}</div>
+                
+                <div class="sub-header-center">
+                    ${workTypeLabel}<br/>
+                    ${classInfo}
+                </div>
+                
+                <div class="theme-area">Tema: ${data.topic || "..."}</div>
+                
+                <div class="student-section">
+                    <span class="student-label">${studentLabel}</span>
+                    <ul class="student-list">
+                        ${studentName.split(/\n|,/).map((s: string) => `<li>${s.trim()}</li>`).join('')}
+                    </ul>
+                </div>
+                
+                <div class="footer-info">${data.location || "Lichinga"}, ${currentMonth} de ${currentYear}</div>
+            
+            </div></div>
 
-                        <div>
-                            <p style="margin:0;">${data.location || "Cidade"}, ${data.month || currentMonth} de ${data.year || currentYear}</p>
-                        </div>
+            --- PÁGINA 2: CONTRA CAPA (SEM ESQUADRIA) ---
+            Estrutura HTML Obrigatória:
+            <div class="page cover-page"><div class="page-content-wrapper">
+                
+                <div class="header-school">${data.school || "ESCOLA SECUNDÁRIA..."}</div>
+                
+                <div class="sub-header-center">
+                    ${workTypeLabel}<br/>
+                    ${classInfo}
+                </div>
+                
+                <div class="theme-area">Tema: ${data.topic || "..."}</div>
+                
+                <div class="student-section">
+                    <span class="student-label">${studentLabel}</span>
+                    <ul class="student-list">
+                         ${studentName.split(/\n|,/).map((s: string) => `<li>${s.trim()}</li>`).join('')}
+                    </ul>
+                </div>
+
+                <!-- BOX DE AVALIAÇÃO (Lado Direito) com Nome do Docente -->
+                <div class="evaluation-container">
+                    <div class="evaluation-box">
+                        Trabalho de aplicação de carácter avaliativo de disciplina de <strong>${data.subject || '...'}</strong> leccionado pelo professor:<br/><br/>
+                        <strong>${data.teacher || '...'}</strong>
                     </div>
                 </div>
-            </div>
+                
+                <!-- Footer sempre no fundo -->
+                <div class="footer-info">${data.location || "Lichinga"}, ${currentMonth} de ${currentYear}</div>
 
-            --- PÁGINA 2: CONTRA CAPA (Folha de Rosto) ---
-            <div class="page page-back-cover">
-                <div style="margin-top: 2cm;">
-                    <p style="font-weight:bold; font-size:12pt;">${studentName}</p>
-                </div>
+            </div></div>
 
-                <div style="margin-top: 5cm;">
-                     <h1 style="font-size:16pt;">${data.topic ? data.topic.toUpperCase() : "TEMA"}</h1>
-                </div>
-
-                <div class="assignment-block">
-                    <p style="text-indent: 0;">Trabalho de aplicação de carácter avaliativo da disciplina de ${data.subject || "Disciplina"}, leccionado pelo(a) docente: ${data.teacher || "Nome do Docente"} para efeitos de avaliação na ${data.grade || "X"} Classe, Turma ${data.class || "X"}.</p>
-                </div>
-
-                <div style="margin-top: auto;">
-                    <p>${data.location || "Local"}, ${data.year || currentYear}</p>
-                </div>
-            </div>
-
-            --- PÁGINA 3: ÍNDICE ---
-            <div class="page">
-                <h2 style="text-align:center;">ÍNDICE</h2>
-                <div class="toc-item"><span class="toc-text">1. Introdução</span><span class="toc-page">4</span></div>
-                <div class="toc-item"><span class="toc-text">2. Desenvolvimento</span><span class="toc-page">5</span></div>
-                <div class="toc-item"><span class="toc-text">3. Conclusão</span><span class="toc-page">X</span></div>
-                <div class="toc-item"><span class="toc-text">4. Bibliografia</span><span class="toc-page">Y</span></div>
-            </div>
-
-            --- PÁGINA 4: INTRODUÇÃO ---
-            <div class="page">
-                <h2>1. INTRODUÇÃO</h2>
-                <p>Escreva uma introdução longa, de pelo menos 4 a 6 parágrafos, contextualizando o tema ${data.topic}. Fale sobre a importância, objetivos gerais e específicos e metodologia usada.</p>
-            </div>
-
-            --- PÁGINAS 5+: DESENVOLVIMENTO (EXTENSO) ---
-            <div class="page">
-                <h2>2. DESENVOLVIMENTO</h2>
-                <p>Desenvolva o tema profundamente. Use subtítulos (2.1, 2.2, etc.). Traga definições, características, exemplos, histórico. NÃO RESUMA. O texto deve ocupar toda a folha e se necessário crie mais páginas &lt;div class="page"&gt;.</p>
-                <p>Informação detalhada é essencial.</p>
-            </div>
-
-             --- PÁGINA SEPARADA: CONCLUSÃO ---
-            <div class="page">
-                <h2>3. CONCLUSÃO</h2>
-                <p>Conclusão detalhada retomando os objetivos. Mínimo 3 parágrafos.</p>
-            </div>
-
-             --- PÁGINA SEPARADA: BIBLIOGRAFIA ---
-            <div class="page">
-                <h2>4. REFERÊNCIAS BIBLIOGRÁFICAS</h2>
-                <p>Liste referências bibliográficas fictícias mas plausíveis (livros, artigos) formatadas normas APA 6ª ou 7ª edição.</p>
-            </div>
+            --- PÁGINAS SEGUINTES ---
+            - Índice (Página Separada)
+            - Introdução (Página Separada)
+            - Desenvolvimento (Texto longo e detalhado, SEM RESUMIR)
+            - Conclusão (Página Separada)
+            - Bibliografia (Página Separada)
           `;
       } else {
-          promptContext = `
-            TIPO: DOCUMENTO GERAL (${docType}).
-            TEMA: ${data.topic}.
-            Gere um documento profissional com capa e conteúdo extenso.
-            Use <div class="page"> para separar páginas.
-            NÃO RESUMA.
-          `;
+          promptContext = `Gere um documento formatado sobre ${data.topic}.`;
       }
 
       const promptText = `
-        Gere um DOCUMENTO HTML COMPLETO para impressão.
-        
+        Gere um DOCUMENTO HTML COMPLETO.
         INSTRUÇÕES:
-        1. Inclua o bloco de estilo CSS fornecido EXATAMENTE no início.
+        1. Inclua o bloco <style> fornecido.
         2. Retorne APENAS HTML válido.
-        3. Use a estrutura de <div class="page"> rigorosamente.
-        4. O conteúdo deve ser rico, académico e extenso (NÃO RESUMIDO).
+        3. Siga RIGOROSAMENTE a estrutura de Capa (Com Borda) e Contra Capa (Sem Borda).
         
         ${styleBlock}
         
-        CONTEÚDO:
         ${promptContext}
       `;
 
