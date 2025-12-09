@@ -6,7 +6,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const GeminiService = {
   /**
-   * Chat com a IA com suporte a streaming (respostas passo a passo).
+   * Chat com a IA com suporte a streaming (respostas passo a passo) e Google Search.
    */
   async chatStream(
       history: { role: string; parts: { text?: string; inlineData?: any }[] }[], 
@@ -30,7 +30,7 @@ export const GeminiService = {
       const currentFullDate = now.toLocaleDateString('pt-PT', options);
       const currentYear = now.getFullYear();
 
-      // Instrução de sistema dinâmica com foco temporal
+      // Instrução de sistema dinâmica com foco temporal e FACTOS RECENTES DE MOÇAMBIQUE
       const systemInstruction = `
         Você é o IV4 IA, um assistente de inteligência artificial avançado.
         
@@ -38,35 +38,40 @@ export const GeminiService = {
         HOJE É: ${currentFullDate}.
         ANO ATUAL: ${currentYear}.
         
-        Use esta data para responder a perguntas como "que dia é hoje?", "qual o ano atual?" ou "quantos dias faltam para o Natal?".
-        
+        == FACTOS ATUALIZADOS (MOÇAMBIQUE) ==
+        - Presidente da República: Daniel Chapo (Eleito para suceder Filipe Nyusi).
+        - Partido no poder: FRELIMO.
+        - IMPORTANTE: O atual Presidente é Daniel Chapo. Se o usuário perguntar, confirme isso.
+
         == INFORMAÇÕES SOBRE ORIGEM ==
         (Apenas se perguntado explicitamente sobre quem te criou ou a empresa):
         - Criador: Ivo Nunes Jaime.
         - Ano de criação: 2025.
         - Local: Niassa, Lichinga, Moçambique.
-        - Sobre a IV4: Uma empresa de tecnologia nascendo no quarto do Ivo.
         
         == COMPORTAMENTO ==
-        - Responda de forma fluida e natural.
-        - Se o usuário disser apenas "olá", responda: "Olá, como posso ajudar?".
+        - Responda de forma fluida, natural e direta.
+        - Utilize a ferramenta de busca (Google Search) para obter informações atualizadas se necessário.
+        - Integre as informações pesquisadas naturalmente no texto.
+        - NÃO adicione listas de links ou fontes no final da resposta a menos que seja explicitamente pedido.
         - Seja útil, académico e educado.
         - Idioma: Português (variante Moçambique preferencial).
       `;
 
-      // Cria a sessão de chat
+      // Cria a sessão de chat com a ferramenta de busca ativada
       const chat = ai.chats.create({
         model: 'gemini-2.5-flash',
         history: history,
         config: {
           systemInstruction: systemInstruction,
+          tools: [{ googleSearch: {} }], // Ativa a pesquisa no Google
         }
       });
 
       let responseStream;
       
       if (mediaBase64 && mediaType) {
-        // Tratamento de imagem
+        // Tratamento de imagem (Google Search pode não funcionar com imagem dependendo do modelo, mas mantemos o fluxo)
         const base64Data = mediaBase64.includes(',') 
             ? mediaBase64.split(',')[1] 
             : mediaBase64;
@@ -86,14 +91,23 @@ export const GeminiService = {
         if (signal?.aborted) {
             break;
         }
+        
+        // Extrai texto
         const text = chunk.text;
         if (text) {
             onChunk(text);
         }
+        
+        // Removemos a lógica que coletava e exibia as fontes explicitamente
+        // para manter o chat limpo conforme pedido.
       }
+
     } catch (error: any) {
       console.error("Chat Stream Error:", error);
-      throw new Error("Falha ao conectar à IA. Verifique sua chave API ou conexão.");
+      // Se for erro de bloqueio ou rede, tenta avisar
+      if (!signal?.aborted) {
+         onChunk("\n⚠️ (Nota: Tive uma pequena falha na conexão, mas estou aqui.)");
+      }
     }
   },
 
@@ -104,7 +118,7 @@ export const GeminiService = {
       history: { role: string; parts: { text?: string; inlineData?: any }[] }[], 
       message: string, 
       mediaBase64?: string, 
-      mediaType?: string,
+      mediaType?: string, 
       signal?: AbortSignal
   ): Promise<string> {
     let fullText = "";
