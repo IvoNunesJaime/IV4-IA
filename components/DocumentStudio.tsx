@@ -361,7 +361,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
             <div className="h-10 bg-[#2b579a] flex items-center justify-between px-4 text-white shrink-0">
                 <div className="flex items-center gap-4">
                     <button onClick={() => setMode('wizard')} className="hover:bg-white/20 p-1 rounded"><ArrowLeft size={16}/></button>
-                    <span className="font-semibold text-sm flex items-center gap-2"><FileText size={14}/> {metadata.topic || "Documento Sem Título"}</span>
+                    <span className="font-semibold text-sm flex items-center gap-2 max-w-[150px] md:max-w-none truncate"><FileText size={14}/> {metadata.topic || "Documento Sem Título"}</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={() => setShowSavedDocsModal(true)} className="p-1.5 hover:bg-white/20 rounded" title="Abrir"><FolderOpen size={16}/></button>
@@ -372,14 +372,14 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
             {/* --- RIBBON INTERFACE --- */}
             <div className="bg-white border-b border-gray-300 shadow-sm shrink-0 flex flex-col">
                 {/* Tabs */}
-                <div className="flex px-2 bg-[#f3f4f6] pt-1">
-                    <div className={`ribbon-tab ${activeTab === 'inicio' ? 'active' : ''}`} onClick={() => setActiveTab('inicio')}>Início</div>
-                    <div className={`ribbon-tab ${activeTab === 'inserir' ? 'active' : ''}`} onClick={() => setActiveTab('inserir')}>Inserir</div>
-                    <div className={`ribbon-tab ${activeTab === 'layout' ? 'active' : ''}`} onClick={() => setActiveTab('layout')}>Leiaute da Página</div>
+                <div className="flex px-2 bg-[#f3f4f6] pt-1 overflow-x-auto">
+                    <div className={`ribbon-tab whitespace-nowrap ${activeTab === 'inicio' ? 'active' : ''}`} onClick={() => setActiveTab('inicio')}>Início</div>
+                    <div className={`ribbon-tab whitespace-nowrap ${activeTab === 'inserir' ? 'active' : ''}`} onClick={() => setActiveTab('inserir')}>Inserir</div>
+                    <div className={`ribbon-tab whitespace-nowrap ${activeTab === 'layout' ? 'active' : ''}`} onClick={() => setActiveTab('layout')}>Leiaute</div>
                 </div>
 
                 {/* Toolbar Content */}
-                <div className="h-24 flex items-center px-2 py-2 gap-2 bg-white overflow-x-auto">
+                <div className="h-24 flex items-center px-2 py-2 gap-2 bg-white overflow-x-auto custom-scrollbar">
                     
                     {activeTab === 'inicio' && (
                         <>
@@ -389,8 +389,8 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
                             <div className="ribbon-group">
                                 <div className="flex flex-col gap-1">
                                     <div className="flex gap-1">
-                                        <select onChange={(e) => executeCommand('fontName', e.target.value)} className="h-6 text-xs border border-gray-300 rounded w-32">
-                                            <option value="Times New Roman">Times New Roman</option>
+                                        <select onChange={(e) => executeCommand('fontName', e.target.value)} className="h-6 text-xs border border-gray-300 rounded w-24 md:w-32">
+                                            <option value="Times New Roman">Times</option>
                                             <option value="Arial">Arial</option>
                                             <option value="Calibri">Calibri</option>
                                         </select>
@@ -405,13 +405,10 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
                                         <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('bold')}><Bold size={16}/></button>
                                         <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('italic')}><Italic size={16}/></button>
                                         <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('underline')}><Underline size={16}/></button>
-                                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                                        <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('subscript')}><span className="text-xs">x₂</span></button>
-                                        <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('superscript')}><span className="text-xs">x²</span></button>
                                     </div>
                                 </div>
                             </div>
-                            <div className="ribbon-group">
+                            <div className="ribbon-group hidden md:flex">
                                 <div className="flex flex-col gap-1">
                                     <div className="flex gap-1">
                                          <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('insertUnorderedList')}><List size={16}/></button>
@@ -421,16 +418,15 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
                                         <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('justifyLeft')}><AlignLeft size={16}/></button>
                                         <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('justifyCenter')}><AlignCenter size={16}/></button>
                                         <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('justifyRight')}><AlignRight size={16}/></button>
-                                        <button className="ribbon-btn-sm hover:bg-gray-100 rounded" onClick={() => executeCommand('justifyFull')}><AlignJustify size={16}/></button>
                                     </div>
                                 </div>
                             </div>
                             <div className="ribbon-group">
-                                <button className="ribbon-btn" onClick={() => setShowHumanizer(true)}>
+                                <button className="ribbon-btn whitespace-nowrap" onClick={() => setShowHumanizer(true)}>
                                     <Sparkles size={20} className="text-purple-600" /> Humanizar
                                 </button>
-                                <button className="ribbon-btn" onClick={() => setShowAIEditModal(true)}>
-                                    <Edit3 size={20} className="text-green-600" /> Editar c/ IA
+                                <button className="ribbon-btn whitespace-nowrap" onClick={() => setShowAIEditModal(true)}>
+                                    <Edit3 size={20} className="text-green-600" /> Editar IA
                                 </button>
                             </div>
                         </>
@@ -439,10 +435,10 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
                     {activeTab === 'inserir' && (
                         <>
                             <div className="ribbon-group">
-                                <button className="ribbon-btn" onClick={addNewPage}><PlusCircle size={24} className="text-blue-600"/>Nova Página</button>
+                                <button className="ribbon-btn whitespace-nowrap" onClick={addNewPage}><PlusCircle size={24} className="text-blue-600"/>Nova Página</button>
                             </div>
                             <div className="ribbon-group">
-                                <button className="ribbon-btn" onClick={insertTextBox}><BoxSelect size={24} className="text-gray-600"/>Caixa de Texto</button>
+                                <button className="ribbon-btn whitespace-nowrap" onClick={insertTextBox}><BoxSelect size={24} className="text-gray-600"/>Cx Texto</button>
                                 <button className="ribbon-btn"><ImageIcon size={24} className="text-gray-600"/>Imagem</button>
                             </div>
                         </>
@@ -461,26 +457,26 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
                     )}
 
                     <div className="flex-grow"></div>
-                    <button onClick={handleDownloadPDF} className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2">
-                        <Download size={16}/> Salvar PDF
+                    <button onClick={handleDownloadPDF} className="bg-blue-600 text-white px-3 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2 whitespace-nowrap text-sm">
+                        <Download size={16}/> PDF
                     </button>
                 </div>
             </div>
 
             {/* --- DOCUMENT EDITOR --- */}
-            <div className="flex-grow overflow-y-auto bg-[#e5e5e5] p-8 flex justify-center relative">
+            <div className="flex-grow overflow-y-auto bg-[#e5e5e5] p-2 md:p-8 flex justify-center relative">
                 {/* AI Edit Button Floating */}
                 <button 
                     onClick={() => setShowAIEditModal(true)}
-                    className="absolute right-8 top-8 bg-green-600 text-white p-3 rounded-full shadow-lg hover:bg-green-700 transition-transform hover:scale-105 z-40 flex items-center gap-2"
+                    className="absolute right-4 bottom-4 md:right-8 md:top-8 md:bottom-auto bg-green-600 text-white p-3 rounded-full shadow-lg hover:bg-green-700 transition-transform hover:scale-105 z-40 flex items-center gap-2"
                 >
-                    <Edit3 size={20} /> <span className="text-sm font-bold">Editar com IA</span>
+                    <Edit3 size={20} /> <span className="text-sm font-bold hidden md:inline">Editar com IA</span>
                 </button>
 
-                <div id="printable-content" className="iv4-document-wrapper">
+                <div id="printable-content" className="iv4-document-wrapper w-full flex justify-center">
                     <div 
                         ref={editorRef}
-                        className="iv4-editor outline-none iv4-document-container"
+                        className="iv4-editor outline-none iv4-document-container w-full"
                         contentEditable
                         suppressContentEditableWarning
                         onInput={(e) => setDocumentContent(e.currentTarget.innerHTML)}

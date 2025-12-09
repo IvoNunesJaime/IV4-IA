@@ -232,7 +232,7 @@ export const GeminiService = {
       const classInfo = `${data.grade || "10ª"} Classe, Turma '${data.class || "A"}'`;
 
 
-      // Estilo CSS Robusto
+      // Estilo CSS Robusto com Responsividade Mobile
       const styleBlock = `
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Times+New+Roman&display=swap');
@@ -242,13 +242,17 @@ export const GeminiService = {
                 line-height: 1.5; 
                 color: black !important;
                 background-color: transparent;
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
             }
             
-            /* General Page Settings */
+            /* General Page Settings (Desktop/Print default) */
             .page {
                 width: 21cm;
-                min-height: 29.7cm; /* Default for content pages */
-                padding: 2.5cm; /* Standard Margin */
+                min-height: 29.7cm; /* Default A4 height */
+                padding: 2.5cm;
                 background: white !important;
                 color: black !important;
                 box-sizing: border-box;
@@ -262,27 +266,66 @@ export const GeminiService = {
                 flex-direction: column;
             }
 
-            /* CAPA E CONTRA CAPA: Altura Fixa para layout perfeito */
+            /* Responsive Design for Mobile Screens (Phones) */
+            @media screen and (max-width: 768px) {
+                .page {
+                    width: 95% !important; /* Fit screen width with margin */
+                    max-width: 21cm;
+                    min-height: 0 !important; /* Let content dictate height */
+                    height: auto !important;
+                    padding: 1.5cm !important; /* Smaller padding */
+                    margin-bottom: 15px !important;
+                }
+                
+                .page.cover-page {
+                    height: auto !important; /* Allow cover to flex */
+                    min-height: 80vh !important; /* Ensure it looks substantial */
+                }
+
+                .page-border {
+                    padding: 0.5cm !important; /* Smaller border padding */
+                    min-height: 75vh !important;
+                }
+
+                .header-school, .theme-area {
+                    font-size: 14pt !important; /* Slightly smaller header text */
+                }
+                
+                .sub-header-center, .student-label, .student-list {
+                    font-size: 11pt !important;
+                }
+
+                .footer-info {
+                    position: relative;
+                    margin-top: 2cm !important;
+                }
+            }
+
+            /* CAPA E CONTRA CAPA: Altura Fixa para layout perfeito em Desktop/Print */
             .page.cover-page {
-                height: 29.7cm; /* Fixed A4 Height for covers */
+                height: 29.7cm; 
                 padding: 1.5cm; /* Reduced padding to allow border to fit */
             }
 
+            /* MODO DE IMPRESSÃO - Força A4 Padrão */
             @media print {
                 body * { visibility: hidden; }
                 #printable-content, #printable-content * { visibility: visible; }
                 #printable-content { position: absolute; left: 0; top: 0; width: 100%; }
+                
                 .page {
+                    width: 21cm !important;
+                    height: 29.7cm !important;
                     margin: 0 !important;
                     box-shadow: none !important;
                     border: none !important;
                     overflow: visible !important;
                     page-break-after: always;
                     break-after: page;
-                    padding: 2.5cm;
+                    padding: 2.5cm !important;
                 }
                 .page.cover-page {
-                    padding: 1.5cm;
+                    padding: 1.5cm !important;
                     height: 29.7cm !important;
                 }
             }
