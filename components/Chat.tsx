@@ -44,6 +44,7 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
   const [input, setInput] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<{data: string, type: string, name: string} | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   
   // Toggles
   const [isThinkingEnabled, setIsThinkingEnabled] = useState(false);
@@ -63,7 +64,7 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, isStreaming]); // Scroll quando mensagens mudam ou quando o streaming atualiza
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -89,14 +90,20 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
           abortControllerRef.current.abort();
           abortControllerRef.current = null;
           setIsLoading(false);
-          const newMsgs = [...messages, {
-              id: Date.now().toString(),
-              role: 'model' as const,
-              text: "⏹️ Resposta cancelada pelo usuário.",
-              timestamp: Date.now()
-          }];
-          setMessages(newMsgs);
-          onUpdateSession(newMsgs);
+          setIsStreaming(false);
+          
+          // Adiciona mensagem de cancelado se necessário ou apenas para o estado atual
+          setMessages(prev => {
+              const lastMsg = prev[prev.length - 1];
+              if (lastMsg.role === 'model' && lastMsg.text === '') {
+                  // Se cancelou antes de vir qualquer texto
+                   return [...prev.slice(0, -1), {
+                      ...lastMsg,
+                      text: "⏹️ Resposta cancelada."
+                   }];
+              }
+              return prev;
+          });
       }
   };
 
@@ -122,8 +129,13 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     const mediaToSend = selectedMedia; 
     setSelectedMedia(null); 
     setIsLoading(true);
+    setIsStreaming(false);
 
     abortControllerRef.current = new AbortController();
+    
+    // ID para a nova mensagem do bot
+    const botMsgId = (Date.now() + 1).toString();
+    let accumulatedText = "";
 
     try {
       // Filter history for API
@@ -134,27 +146,46 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
             parts: [{ text: m.text }]
         }));
 
-      const responseText = await GeminiService.chat(
+      await GeminiService.chatStream(
           history, 
           userMsg.text, 
-          mediaToSend?.data, 
+          (chunkText) => {
+              // Assim que o primeiro chunk chega, marcamos como streaming para remover o loader
+              if (!accumulatedText) {
+                  setIsStreaming(true);
+                  // Adiciona a mensagem inicial do bot
+                  setMessages(prev => [...prev, {
+                      id: botMsgId,
+                      role: 'model',
+                      text: chunkText,
+                      timestamp: Date.now()
+                  }]);
+              } else {
+                  // Atualiza mensagem existente com o novo pedaço
+                  setMessages(prev => prev.map(m => 
+                      m.id === botMsgId ? { ...m, text: accumulatedText + chunkText } : m
+                  ));
+              }
+              accumulatedText += chunkText;
+          },
+          mediaToSend?.data,
           mediaToSend?.type,
           abortControllerRef.current.signal
       );
 
-      const botMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'model',
-        text: responseText,
-        timestamp: Date.now(),
-      };
-
-      const finalMessages = [...newMessages, botMsg];
-      setMessages(finalMessages);
-      onUpdateSession(finalMessages);
+      // Atualização final da sessão para persistência
+      if (accumulatedText) {
+        const finalMessages = [...newMessages, {
+            id: botMsgId,
+            role: 'model' as const,
+            text: accumulatedText,
+            timestamp: Date.now()
+        }];
+        onUpdateSession(finalMessages);
+      }
 
     } catch (error: any) {
-        if (error.message !== 'Geração cancelada pelo usuário.') {
+        if (error.name !== 'AbortError' && error.message !== 'Aborted') {
             const errorMsg: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'model',
@@ -167,6 +198,7 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
         }
     } finally {
       setIsLoading(false);
+      setIsStreaming(false);
       abortControllerRef.current = null;
     }
   };
@@ -179,13 +211,21 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
   };
 
   const renderMessageContent = (text: string) => {
+    // Basic Markdown Code Block Parser
+    // Se estivermos em streaming e um bloco de código estiver aberto mas não fechado,
+    // o regex pode falhar. Vamos tentar renderizar o que temos.
     const parts = text.split(/```(\w*)\n([\s\S]*?)```/g);
+    
+    // Se o texto termina com ``` ou ```lang mas sem fechar, pode aparecer "quebrado" durante o stream.
+    // Isso é normal, mas para evitar flash, apenas renderizamos.
+    
     return parts.map((part, index) => {
         if (index % 3 === 0) {
+            // Texto normal
             if (!part.trim()) return null;
             return <div key={index} className="whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200">{part}</div>;
         }
-        if (index % 3 === 1) return null;
+        if (index % 3 === 1) return null; // Linguagem capturada pelo regex
         const language = parts[index - 1];
         return <CodeBlock key={index} code={part} language={language} />;
     });
@@ -285,22 +325,30 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
                         <div className="flex-grow min-w-0 pt-1">
                             <div className="text-gray-800 dark:text-gray-200 text-base leading-relaxed">
                                 {renderMessageContent(msg.text)}
+                                {/* Cursor blink effect if streaming this message */}
+                                {isStreaming && msg.id === messages[messages.length-1].id && (
+                                    <span className="inline-block w-2 h-4 align-middle bg-indigo-500 ml-1 animate-pulse rounded-sm"></span>
+                                )}
                             </div>
-                            <div className="flex items-center gap-4 mt-2">
-                                <button onClick={() => onHumanizeRequest(msg.text)} className="p-1 text-gray-400 hover:text-[#4f46e5] dark:text-gray-500 dark:hover:text-[#a78bfa] transition-colors" title="Humanizar">
-                                    <Zap size={16} />
-                                </button>
-                                <button onClick={() => navigator.clipboard.writeText(msg.text)} className="p-1 text-gray-400 hover:text-black dark:text-gray-500 dark:hover:text-white transition-colors" title="Copiar">
-                                    <Copy size={16} />
-                                </button>
-                            </div>
+                            {/* Actions toolbar - only show if not streaming or if text is long enough */}
+                            {(!isStreaming || msg.text.length > 50) && (
+                                <div className="flex items-center gap-4 mt-2 fade-in">
+                                    <button onClick={() => onHumanizeRequest(msg.text)} className="p-1 text-gray-400 hover:text-[#4f46e5] dark:text-gray-500 dark:hover:text-[#a78bfa] transition-colors" title="Humanizar">
+                                        <Zap size={16} />
+                                    </button>
+                                    <button onClick={() => navigator.clipboard.writeText(msg.text)} className="p-1 text-gray-400 hover:text-black dark:text-gray-500 dark:hover:text-white transition-colors" title="Copiar">
+                                        <Copy size={16} />
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
             </div>
           ))}
           
-          {isLoading && (
+          {/* Loading Indicator (Only show if NOT streaming text yet and IS loading) */}
+          {isLoading && !isStreaming && (
             <div className="flex gap-4">
                <div className="w-8 h-8 rounded-lg bg-[#4f46e5] flex items-center justify-center shrink-0 animate-pulse">
                    <Sparkles size={16} className="text-white" />
@@ -332,7 +380,7 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
             setIsThinkingEnabled={setIsThinkingEnabled}
             isSearchEnabled={isSearchEnabled}
             setIsSearchEnabled={setIsSearchEnabled}
-            className="fixed bottom-0 left-0 md:left-0 lg:left-0 right-0 bg-gray-50 dark:bg-[#030712] pt-4 pb-6 px-4 z-20 flex justify-center transition-colors duration-300" // Centered and aware of sidebar overlay
+            className="fixed bottom-0 left-0 md:left-0 lg:left-0 right-0 bg-gray-50 dark:bg-[#030712] pt-4 pb-6 px-4 z-20 flex justify-center transition-colors duration-300" 
         />
     </div>
   );
@@ -347,7 +395,7 @@ const InputArea = ({
 }: any) => {
     return (
         <div className={className}>
-            <div className={`max-w-3xl w-full ${!isCentered ? 'md:ml-[280px] md:mr-0 transition-all duration-300' : ''}`}> {/* Adjust margin if sidebar is open, handled by parent usually but here we center */}
+            <div className={`max-w-3xl w-full ${!isCentered ? 'md:ml-[280px] md:mr-0 transition-all duration-300' : ''}`}> 
                 <div className={`bg-white dark:bg-[#1f2937] rounded-2xl p-2 border border-gray-200 dark:border-white/5 shadow-xl dark:shadow-2xl relative flex flex-col transition-all focus-within:border-indigo-500/50 dark:focus-within:border-white/10 ${isCentered ? 'min-h-[60px]' : ''}`}>
                     
                     {/* Media Preview */}

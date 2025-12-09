@@ -6,31 +6,52 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const GeminiService = {
   /**
-   * Chat com a IA, suportando texto e imagens, processado diretamente no navegador.
+   * Chat com a IA com suporte a streaming (respostas passo a passo).
    */
-  async chat(
+  async chatStream(
       history: { role: string; parts: { text?: string; inlineData?: any }[] }[], 
       message: string, 
+      onChunk: (text: string) => void,
       mediaBase64?: string, 
       mediaType?: string,
       signal?: AbortSignal
-  ): Promise<string> {
+  ): Promise<void> {
     try {
+      // Obtém a data e hora atual dinamicamente
+      const now = new Date();
+      const options: Intl.DateTimeFormatOptions = { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric',
+        hour: '2-digit', 
+        minute: '2-digit'
+      };
+      const currentFullDate = now.toLocaleDateString('pt-PT', options);
+      const currentYear = now.getFullYear();
+
+      // Instrução de sistema dinâmica com foco temporal
       const systemInstruction = `
         Você é o IV4 IA, um assistente de inteligência artificial avançado.
         
-        INFORMAÇÕES SOBRE ORIGEM, CRIADOR E A EMPRESA (Use APENAS se perguntado sobre quem te criou, ano de criação ou o que é a IV4):
-        - Ano de criação: 2025.
-        - Criador: Ivo Nunes Jaime.
-        - Local: No quarto dele, na casa dos avós, na província do Niassa, distrito de Lichinga, Moçambique.
-        - Contexto: És um dos projetos de Ivo que já está em funcionamento.
-        - Sobre a IV4: A IV4 não é apenas um chat, é uma empresa de tecnologia que está a nascer num quarto com o objetivo de trazer inovação.
+        == CONTEXTO TEMPORAL OBRIGATÓRIO ==
+        HOJE É: ${currentFullDate}.
+        ANO ATUAL: ${currentYear}.
         
-        COMPORTAMENTO:
-        - Se o usuário NÃO perguntar sobre sua origem, criador ou empresa, NÃO mencione isso espontaneamente.
-        - Se for o início da conversa e o usuário disser apenas "olá", "oi" ou similar, responda APENAS: "Olá, como posso ajudar?"
-        - Seja sempre útil, académico, claro e educado.
-        - Responda no idioma Português (de preferência variante de Moçambique quando aplicável).
+        Use esta data para responder a perguntas como "que dia é hoje?", "qual o ano atual?" ou "quantos dias faltam para o Natal?".
+        
+        == INFORMAÇÕES SOBRE ORIGEM ==
+        (Apenas se perguntado explicitamente sobre quem te criou ou a empresa):
+        - Criador: Ivo Nunes Jaime.
+        - Ano de criação: 2025.
+        - Local: Niassa, Lichinga, Moçambique.
+        - Sobre a IV4: Uma empresa de tecnologia nascendo no quarto do Ivo.
+        
+        == COMPORTAMENTO ==
+        - Responda de forma fluida e natural.
+        - Se o usuário disser apenas "olá", responda: "Olá, como posso ajudar?".
+        - Seja útil, académico e educado.
+        - Idioma: Português (variante Moçambique preferencial).
       `;
 
       // Cria a sessão de chat
@@ -42,29 +63,60 @@ export const GeminiService = {
         }
       });
 
-      let response;
+      let responseStream;
       
       if (mediaBase64 && mediaType) {
-        // O SDK espera apenas os dados base64, sem o prefixo "data:image/..."
+        // Tratamento de imagem
         const base64Data = mediaBase64.includes(',') 
             ? mediaBase64.split(',')[1] 
             : mediaBase64;
             
-        response = await chat.sendMessage({
+        responseStream = await chat.sendMessageStream({
             message: [
                 { text: message },
                 { inlineData: { data: base64Data, mimeType: mediaType } }
             ]
         });
       } else {
-        response = await chat.sendMessage({ message: message });
+        responseStream = await chat.sendMessageStream({ message: message });
       }
 
-      return response.text || "";
+      // Loop de streaming para enviar dados "pouco a pouco"
+      for await (const chunk of responseStream) {
+        if (signal?.aborted) {
+            break;
+        }
+        const text = chunk.text;
+        if (text) {
+            onChunk(text);
+        }
+      }
     } catch (error: any) {
-      console.error("Chat Error:", error);
+      console.error("Chat Stream Error:", error);
       throw new Error("Falha ao conectar à IA. Verifique sua chave API ou conexão.");
     }
+  },
+
+  /**
+   * Wrapper para chamadas sem necessidade de UI streaming, mas usando a lógica unificada.
+   */
+  async chat(
+      history: { role: string; parts: { text?: string; inlineData?: any }[] }[], 
+      message: string, 
+      mediaBase64?: string, 
+      mediaType?: string,
+      signal?: AbortSignal
+  ): Promise<string> {
+    let fullText = "";
+    await this.chatStream(
+        history, 
+        message, 
+        (chunk) => { fullText += chunk; }, 
+        mediaBase64, 
+        mediaType, 
+        signal
+    );
+    return fullText;
   },
 
   /**
