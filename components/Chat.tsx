@@ -121,6 +121,7 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
       timestamp: Date.now(),
     };
 
+    // Atualiza estado local e UI
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     onUpdateSession(newMessages);
@@ -138,8 +139,9 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     let accumulatedText = "";
 
     try {
-      // Filter history for API
-      const history = newMessages
+      // FIX: Use 'messages' (previous state) instead of 'newMessages' to avoid 
+      // duplicating the current user message in the history context.
+      const history = messages
         .filter(m => !m.image) 
         .map(m => ({
             role: m.role,
@@ -150,22 +152,29 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
           history, 
           userMsg.text, 
           (chunkText) => {
-              // Assim que o primeiro chunk chega, marcamos como streaming para remover o loader
-              if (!accumulatedText) {
-                  setIsStreaming(true);
-                  // Adiciona a mensagem inicial do bot
-                  setMessages(prev => [...prev, {
-                      id: botMsgId,
-                      role: 'model',
-                      text: chunkText,
-                      timestamp: Date.now()
-                  }]);
-              } else {
-                  // Atualiza mensagem existente com o novo pedaço
-                  setMessages(prev => prev.map(m => 
-                      m.id === botMsgId ? { ...m, text: accumulatedText + chunkText } : m
-                  ));
-              }
+              // Assim que receber dados, marca como streaming
+              setIsStreaming(true);
+
+              // Update usando functional state para garantir consistência e evitar duplicação
+              setMessages(prev => {
+                  const lastMsg = prev[prev.length - 1];
+                  
+                  // Se a última mensagem for a do bot (streaming em andamento), anexa o texto
+                  if (lastMsg && lastMsg.id === botMsgId) {
+                      return prev.map(m => 
+                          m.id === botMsgId ? { ...m, text: m.text + chunkText } : m
+                      );
+                  } else {
+                      // Se não, é o primeiro chunk, cria a mensagem
+                      return [...prev, {
+                          id: botMsgId,
+                          role: 'model',
+                          text: chunkText,
+                          timestamp: Date.now()
+                      }];
+                  }
+              });
+              
               accumulatedText += chunkText;
           },
           mediaToSend?.data,
@@ -175,6 +184,7 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
 
       // Atualização final da sessão para persistência
       if (accumulatedText) {
+        // Recriamos o array final baseado no que temos + a resposta completa
         const finalMessages = [...newMessages, {
             id: botMsgId,
             role: 'model' as const,

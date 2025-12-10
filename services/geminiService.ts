@@ -55,6 +55,7 @@ export const GeminiService = {
         - Integre as informações pesquisadas naturalmente no texto.
         - NÃO adicione listas de links ou fontes no final da resposta a menos que seja explicitamente pedido.
         - Seja útil, académico e educado.
+        - **Utilize emojis de forma inteligente e moderada para tornar a conversa amigável e expressiva (semelhante ao estilo do ChatGPT/Gemini).** 🚀😊
         - Idioma: Português (variante Moçambique preferencial).
       `;
 
