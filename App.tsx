@@ -27,16 +27,18 @@ const App: React.FC = () => {
   // Ref to track current session ID inside async callbacks (prevents duplication during streaming)
   const currentSessionIdRef = useRef<string | null>(currentSessionId);
 
-  // Initialization & Auth Listener
+  // Handle Dark Mode Class (Separated to avoid re-triggering initialization)
   useEffect(() => {
-    // Handle Dark Mode Class
     if (isDarkMode) {
         document.documentElement.classList.add('dark');
     } else {
         document.documentElement.classList.remove('dark');
     }
+  }, [isDarkMode]);
 
-    // Restore User from LocalStorage (Simulation)
+  // Initialization & Data Loading (Runs once on mount)
+  useEffect(() => {
+    // Restore User from LocalStorage
     const savedUser = localStorage.getItem('iv4_user');
     if (savedUser) {
         try {
@@ -56,19 +58,18 @@ const App: React.FC = () => {
         try {
             const parsed = JSON.parse(savedSessions);
             setSessions(parsed);
-            if (parsed.length > 0) {
-                // Load most recent
-                setCurrentSessionId(parsed[0].id);
-            } else {
-                startNewChat();
-            }
+            // ALTERAÇÃO SOLICITADA:
+            // Mesmo que existam sessões, iniciamos com currentSessionId = null.
+            // Isso força a tela de "Nova Conversa" (Empty State), 
+            // obrigando o usuário a clicar no histórico se quiser ver conversas antigas.
+            setCurrentSessionId(null);
         } catch (e) {
             startNewChat();
         }
     } else {
         startNewChat();
     }
-  }, [isDarkMode]);
+  }, []); // Empty dependency array ensures this only runs once on load
 
   // Sync Ref with State
   useEffect(() => {
@@ -111,7 +112,7 @@ const App: React.FC = () => {
       
       // If we deleted the active session, switch to new chat state
       if (currentSessionId === id) {
-          if (updated.length > 0) setCurrentSessionId(updated[0].id);
+          if (updated.length > 0) setCurrentSessionId(null); // Force new chat logic here too
           else startNewChat();
       }
       localStorage.setItem('iv4_chat_sessions', JSON.stringify(updated));
