@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Auth } from './components/Auth';
 import { Chat } from './components/Chat';
 import { DocumentStudio } from './components/DocumentStudio';
@@ -23,6 +23,9 @@ const App: React.FC = () => {
   // Session Management
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
+  // Ref to track current session ID inside async callbacks (prevents duplication during streaming)
+  const currentSessionIdRef = useRef<string | null>(currentSessionId);
 
   // Initialization & Auth Listener
   useEffect(() => {
@@ -57,15 +60,20 @@ const App: React.FC = () => {
                 // Load most recent
                 setCurrentSessionId(parsed[0].id);
             } else {
-                createNewSession();
+                startNewChat();
             }
         } catch (e) {
-            createNewSession();
+            startNewChat();
         }
     } else {
-        createNewSession();
+        startNewChat();
     }
   }, [isDarkMode]);
+
+  // Sync Ref with State
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId;
+  }, [currentSessionId]);
 
   // Save sessions whenever they change
   useEffect(() => {
@@ -87,16 +95,10 @@ const App: React.FC = () => {
       return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const createNewSession = () => {
-      const newSession: ChatSession = {
-          id: Date.now().toString(),
-          title: 'Nova Conversa',
-          messages: [],
-          createdAt: Date.now(),
-          lastMessageAt: Date.now()
-      };
-      setSessions(prev => [newSession, ...prev]);
-      setCurrentSessionId(newSession.id);
+  const startNewChat = () => {
+      // Just clear the current ID to show empty state. 
+      // The session will be created in memory only when the first message is sent.
+      setCurrentSessionId(null);
       setCurrentView(AppView.CHAT);
       // Close mobile menu if open
       if (window.innerWidth < 768) setIsSidebarOpen(false);
@@ -106,28 +108,60 @@ const App: React.FC = () => {
       e.stopPropagation();
       const updated = sessions.filter(s => s.id !== id);
       setSessions(updated);
+      
+      // If we deleted the active session, switch to new chat state
       if (currentSessionId === id) {
           if (updated.length > 0) setCurrentSessionId(updated[0].id);
-          else createNewSession();
+          else startNewChat();
       }
       localStorage.setItem('iv4_chat_sessions', JSON.stringify(updated));
   };
 
-  const updateSessionMessages = (sessionId: string, messages: Message[]) => {
-      setSessions(prev => prev.map(s => {
-          if (s.id === sessionId) {
-              // Generate title from first user message if it's "New Chat"
-              let newTitle = s.title;
-              if (s.title === 'Nova Conversa' && messages.length > 0) {
-                  const firstUserMsg = messages.find(m => m.role === 'user');
-                  if (firstUserMsg) {
-                      newTitle = firstUserMsg.text.slice(0, 30) + (firstUserMsg.text.length > 30 ? '...' : '');
+  const handleSessionUpdate = (messages: Message[]) => {
+      const activeId = currentSessionIdRef.current;
+
+      if (activeId) {
+          // Update existing session
+          setSessions(prev => prev.map(s => {
+              if (s.id === activeId) {
+                  // Generate title from first user message if it's "New Chat"
+                  let newTitle = s.title;
+                  if ((s.title === 'Nova Conversa' || !s.title) && messages.length > 0) {
+                      const firstUserMsg = messages.find(m => m.role === 'user');
+                      if (firstUserMsg) {
+                          newTitle = firstUserMsg.text.slice(0, 30) + (firstUserMsg.text.length > 30 ? '...' : '');
+                      }
                   }
+                  return { ...s, messages, title: newTitle, lastMessageAt: Date.now() };
               }
-              return { ...s, messages, title: newTitle, lastMessageAt: Date.now() };
+              return s;
+          }).sort((a, b) => b.lastMessageAt - a.lastMessageAt)); // Keep most recent at top
+      } else {
+          // Create NEW session (first message sent in empty state)
+          const newId = Date.now().toString();
+          
+          // IMPORTANT: Update Ref immediately so subsequent updates (streaming) use this ID
+          currentSessionIdRef.current = newId; 
+          
+          let newTitle = 'Nova Conversa';
+          if (messages.length > 0) {
+               const firstUserMsg = messages.find(m => m.role === 'user');
+               if (firstUserMsg) {
+                    newTitle = firstUserMsg.text.slice(0, 30) + (firstUserMsg.text.length > 30 ? '...' : '');
+               }
           }
-          return s;
-      }).sort((a, b) => b.lastMessageAt - a.lastMessageAt)); // Keep most recent at top
+
+          const newSession: ChatSession = {
+              id: newId,
+              title: newTitle,
+              messages: messages,
+              createdAt: Date.now(),
+              lastMessageAt: Date.now()
+          };
+
+          setSessions(prev => [newSession, ...prev]);
+          setCurrentSessionId(newId);
+      }
   };
 
   const handleLogout = () => {
@@ -208,7 +242,7 @@ const App: React.FC = () => {
 
             {/* New Chat Button */}
             <button 
-                onClick={createNewSession}
+                onClick={startNewChat}
                 className="w-full bg-gray-100 dark:bg-[#1f2937] hover:bg-gray-200 dark:hover:bg-[#374151] text-gray-800 dark:text-white py-3 px-4 rounded-xl flex items-center gap-3 font-medium transition-colors mb-8 border border-gray-200 dark:border-white/5 shadow-sm group"
             >
                 <Plus size={20} className="text-gray-500 dark:text-gray-400 group-hover:text-black dark:group-hover:text-white transition-colors" />
@@ -220,7 +254,12 @@ const App: React.FC = () => {
                 <h3 className="text-[11px] font-bold text-gray-500 mb-2 px-3 uppercase tracking-wider">FERRAMENTAS</h3>
                 <nav className="space-y-1">
                     <button 
-                        onClick={() => { setCurrentView(AppView.CHAT); if(window.innerWidth < 768) setIsSidebarOpen(false); }} 
+                        onClick={() => { 
+                            setCurrentView(AppView.CHAT); 
+                            // When clicking Chat, ensure we clear the session to show empty state (ChatGPT style)
+                            setCurrentSessionId(null);
+                            if(window.innerWidth < 768) setIsSidebarOpen(false); 
+                        }} 
                         className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                             currentView === AppView.CHAT 
                             ? 'bg-[#4f46e5]/10 text-[#6366f1]' 
@@ -338,7 +377,7 @@ const App: React.FC = () => {
                     checkUsageLimit={checkUsageLimit}
                     onHumanizeRequest={handleHumanizeRequest}
                     currentSession={getCurrentSession()}
-                    onUpdateSession={(msgs) => currentSessionId && updateSessionMessages(currentSessionId, msgs)}
+                    onUpdateSession={handleSessionUpdate}
                 />
             )}
             {currentView === AppView.HUMANIZER && (
