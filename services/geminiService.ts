@@ -12,7 +12,7 @@ const getAiClient = () => {
 
 export const GeminiService = {
   /**
-   * Chat com a IA com suporte a streaming (respostas passo a passo) e Google Search.
+   * Chat com a IA com suporte a streaming, Thinking Mode e Google Search dinâmicos.
    */
   async chatStream(
       history: { role: string; parts: { text?: string; inlineData?: any }[] }[], 
@@ -20,7 +20,8 @@ export const GeminiService = {
       onChunk: (text: string) => void,
       mediaBase64?: string, 
       mediaType?: string,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      config?: { isThinking?: boolean; isSearch?: boolean }
   ): Promise<void> {
     try {
       // Inicializa o cliente apenas aqui
@@ -60,22 +61,37 @@ export const GeminiService = {
         
         == COMPORTAMENTO ==
         - Responda de forma fluida, natural e direta.
-        - Utilize a ferramenta de busca (Google Search) para obter informações atualizadas se necessário.
-        - Integre as informações pesquisadas naturalmente no texto.
+        - ${config?.isSearch ? 'Utilize a ferramenta de busca (Google Search) para obter informações atualizadas se necessário.' : 'Use seu conhecimento interno para responder.'}
         - NÃO adicione listas de links ou fontes no final da resposta a menos que seja explicitamente pedido.
         - Seja útil, académico e educado.
-        - **Utilize emojis de forma inteligente e moderada para tornar a conversa amigável e expressiva (semelhante ao estilo do ChatGPT/Gemini).** 🚀😊
+        - **Utilize emojis de forma inteligente e moderada para tornar a conversa amigável e expressiva.** 🚀😊
         - Idioma: Português (variante Moçambique preferencial).
       `;
 
-      // Cria a sessão de chat com a ferramenta de busca ativada
+      // Configuração dinâmica de Tools e Thinking
+      const tools: any[] = [];
+      if (config?.isSearch) {
+        tools.push({ googleSearch: {} });
+      }
+
+      const modelConfig: any = {
+        systemInstruction: systemInstruction,
+      };
+
+      if (tools.length > 0) {
+        modelConfig.tools = tools;
+      }
+
+      // Thinking Config (apenas se ativado)
+      if (config?.isThinking) {
+        modelConfig.thinkingConfig = { thinkingBudget: 1024 }; // Budget moderado para respostas rápidas mas pensadas
+      }
+
+      // Cria a sessão de chat
       const chat = ai.chats.create({
         model: 'gemini-2.5-flash',
         history: history,
-        config: {
-          systemInstruction: systemInstruction,
-          tools: [{ googleSearch: {} }], // Ativa a pesquisa no Google
-        }
+        config: modelConfig
       });
 
       let responseStream;
@@ -115,9 +131,11 @@ export const GeminiService = {
          throw error; // Repassa erro de chave para o componente tratar
       }
 
-      // Se for erro de bloqueio ou rede, tenta avisar
+      // Se for erro de bloqueio ou rede, tenta avisar com DETALHES
       if (!signal?.aborted) {
-         onChunk("\n⚠️ (Nota: Tive uma pequena falha na conexão de rede. Verifique se tem internet ou tente recarregar a página.)");
+         const errorDetails = error.message || error.toString();
+         // Mensagem amigável mas técnica o suficiente para debug
+         onChunk(`\n\n⚠️ **Erro de Conexão:** Ocorreu uma falha ao comunicar com a IA.\n\n*Detalhe técnico: ${errorDetails}*\n\nSugestão: Verifique sua conexão à internet, a validade da sua API Key, ou tente desativar a 'Pesquisa' e 'Raciocínio' temporariamente.`);
       }
     }
   },

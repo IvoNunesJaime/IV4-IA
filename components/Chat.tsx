@@ -148,6 +148,12 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
             parts: [{ text: m.text }]
         }));
 
+      // Pass configuration to service
+      const config = {
+          isThinking: isThinkingEnabled,
+          isSearch: isSearchEnabled
+      };
+
       await GeminiService.chatStream(
           history, 
           userMsg.text, 
@@ -179,7 +185,8 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
           },
           mediaToSend?.data,
           mediaToSend?.type,
-          abortControllerRef.current.signal
+          abortControllerRef.current.signal,
+          config // Pass config here
       );
 
       // Atualização final da sessão para persistência
@@ -419,6 +426,24 @@ const InputArea = ({
                             <button onClick={() => setSelectedMedia(null)}><X size={14} className="text-gray-400 hover:text-red-500 dark:hover:text-white" /></button>
                         </div>
                     )}
+
+                    {/* Toggles Area */}
+                    <div className="flex items-center gap-2 px-2 pb-2">
+                        <button 
+                            onClick={() => setIsThinkingEnabled(!isThinkingEnabled)}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${isThinkingEnabled ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'}`}
+                        >
+                            <BrainCircuit size={14} />
+                            Raciocínio {isThinkingEnabled ? 'On' : 'Off'}
+                        </button>
+                         <button 
+                            onClick={() => setIsSearchEnabled(!isSearchEnabled)}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${isSearchEnabled ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'}`}
+                        >
+                            <Globe size={14} />
+                            Pesquisa {isSearchEnabled ? 'On' : 'Off'}
+                        </button>
+                    </div>
 
                     <div className="flex items-center w-full">
                          <textarea
