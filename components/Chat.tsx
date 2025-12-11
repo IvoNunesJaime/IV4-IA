@@ -184,7 +184,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
 
       // Atualização final da sessão para persistência
       if (accumulatedText) {
-        // Recriamos o array final baseado no que temos + a resposta completa
         const finalMessages = [...newMessages, {
             id: botMsgId,
             role: 'model' as const,
@@ -196,10 +195,17 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
 
     } catch (error: any) {
         if (error.name !== 'AbortError' && error.message !== 'Aborted') {
+            let errorText = "⚠️ Erro ao conectar ao servidor. Verifique sua conexão.";
+            
+            // Tratamento específico para falta de chave API
+            if (error.message === 'API_KEY_MISSING' || error.message?.includes('API key')) {
+                errorText = "⚠️ Erro de Configuração: Chave de API não encontrada ou inválida. Por favor, configure a API KEY nas configurações do projeto.";
+            }
+
             const errorMsg: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'model',
-                text: "⚠️ Erro ao conectar ao servidor. Verifique sua conexão.",
+                text: errorText,
                 timestamp: Date.now(),
             };
             const failedMessages = [...newMessages, errorMsg];
@@ -222,12 +228,7 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
 
   const renderMessageContent = (text: string) => {
     // Basic Markdown Code Block Parser
-    // Se estivermos em streaming e um bloco de código estiver aberto mas não fechado,
-    // o regex pode falhar. Vamos tentar renderizar o que temos.
     const parts = text.split(/```(\w*)\n([\s\S]*?)```/g);
-    
-    // Se o texto termina com ``` ou ```lang mas sem fechar, pode aparecer "quebrado" durante o stream.
-    // Isso é normal, mas para evitar flash, apenas renderizamos.
     
     return parts.map((part, index) => {
         if (index % 3 === 0) {

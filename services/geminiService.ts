@@ -1,8 +1,14 @@
 import { GoogleGenAI } from "@google/genai";
 import { HumanizerVariant } from "../types";
 
-// Inicializa o cliente Gemini diretamente com a chave da variável de ambiente
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Função auxiliar para obter o cliente de forma segura e "lazy" (apenas quando necessário)
+const getAiClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API_KEY_MISSING");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 export const GeminiService = {
   /**
@@ -17,6 +23,9 @@ export const GeminiService = {
       signal?: AbortSignal
   ): Promise<void> {
     try {
+      // Inicializa o cliente apenas aqui
+      const ai = getAiClient();
+
       // Obtém a data e hora atual dinamicamente
       const now = new Date();
       const options: Intl.DateTimeFormatOptions = { 
@@ -72,7 +81,7 @@ export const GeminiService = {
       let responseStream;
       
       if (mediaBase64 && mediaType) {
-        // Tratamento de imagem (Google Search pode não funcionar com imagem dependendo do modelo, mas mantemos o fluxo)
+        // Tratamento de imagem
         const base64Data = mediaBase64.includes(',') 
             ? mediaBase64.split(',')[1] 
             : mediaBase64;
@@ -87,27 +96,28 @@ export const GeminiService = {
         responseStream = await chat.sendMessageStream({ message: message });
       }
 
-      // Loop de streaming para enviar dados "pouco a pouco"
+      // Loop de streaming
       for await (const chunk of responseStream) {
         if (signal?.aborted) {
             break;
         }
         
-        // Extrai texto
         const text = chunk.text;
         if (text) {
             onChunk(text);
         }
-        
-        // Removemos a lógica que coletava e exibia as fontes explicitamente
-        // para manter o chat limpo conforme pedido.
       }
 
     } catch (error: any) {
       console.error("Chat Stream Error:", error);
+      
+      if (error.message === "API_KEY_MISSING") {
+         throw error; // Repassa erro de chave para o componente tratar
+      }
+
       // Se for erro de bloqueio ou rede, tenta avisar
       if (!signal?.aborted) {
-         onChunk("\n⚠️ (Nota: Tive uma pequena falha na conexão, mas estou aqui.)");
+         onChunk("\n⚠️ (Nota: Tive uma pequena falha na conexão de rede. Verifique se tem internet ou tente recarregar a página.)");
       }
     }
   },
@@ -143,6 +153,7 @@ export const GeminiService = {
       isReady: boolean 
   }> {
     try {
+        const ai = getAiClient();
         const prompt = `
             Você é um Arquiteto de Documentos Profissional e Académico (Contexto: Moçambique).
             
@@ -237,6 +248,7 @@ export const GeminiService = {
 
   async editDocumentFragment(currentHTML: string, userInstruction: string): Promise<string> {
     try {
+        const ai = getAiClient();
         const prompt = `
             Você é um assistente de edição de texto inteligente para o 'IV4 Studio'.
             O usuário quer modificar o documento HTML atual.
@@ -272,6 +284,7 @@ export const GeminiService = {
 
   async generateDocument(data: any, addBorder: boolean = true): Promise<string> {
     try {
+      const ai = getAiClient();
       const docType = data.docType || 'GENERICO';
       const currentMonth = new Date().toLocaleString('pt-PT', { month: 'long' });
       const currentYear = new Date().getFullYear();
@@ -280,7 +293,6 @@ export const GeminiService = {
       let isGroup = false;
       const studentName = data.student || "";
       
-      // Verifica se há vírgula, " e ", ou quebras de linha para inferir grupo
       if (studentName.includes(',') || studentName.toLowerCase().includes(' e ') || studentName.includes('\n')) {
           isGroup = true;
       }
@@ -289,17 +301,13 @@ export const GeminiService = {
 
       const studentLabel = isGroup ? "Discentes:" : "Discente:";
       
-      // Label dinâmico para "Trabalho em grupo/individual"
       const subjectText = data.subject ? `de ${data.subject}` : "";
       const workTypeLabel = isGroup 
           ? `Trabalho em grupo ${subjectText}` 
           : `Trabalho individual ${subjectText}`;
 
-      // Detalhes da classe/turma
       const classInfo = `${data.grade || "10ª"} Classe, Turma '${data.class || "A"}'`;
 
-
-      // Estilo CSS Robusto com Responsividade Mobile e Índice Estruturado
       const styleBlock = `
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Times+New+Roman&display=swap');
@@ -315,10 +323,9 @@ export const GeminiService = {
                 align-items: center;
             }
             
-            /* General Page Settings (Desktop/Print default) */
             .page {
                 width: 21cm;
-                min-height: 29.7cm; /* Default A4 height */
+                min-height: 29.7cm; 
                 padding: 2.5cm;
                 background: white !important;
                 color: black !important;
@@ -333,29 +340,28 @@ export const GeminiService = {
                 flex-direction: column;
             }
 
-            /* Responsive Design for Mobile Screens (Phones) */
             @media screen and (max-width: 768px) {
                 .page {
-                    width: 95% !important; /* Fit screen width with margin */
+                    width: 95% !important; 
                     max-width: 21cm;
-                    min-height: 0 !important; /* Let content dictate height */
+                    min-height: 0 !important; 
                     height: auto !important;
-                    padding: 1.5cm !important; /* Smaller padding */
+                    padding: 1.5cm !important; 
                     margin-bottom: 15px !important;
                 }
                 
                 .page.cover-page {
-                    height: auto !important; /* Allow cover to flex */
-                    min-height: 80vh !important; /* Ensure it looks substantial */
+                    height: auto !important; 
+                    min-height: 80vh !important;
                 }
 
                 .page-border {
-                    padding: 0.5cm !important; /* Smaller border padding */
+                    padding: 0.5cm !important;
                     min-height: 75vh !important;
                 }
 
                 .header-school, .theme-area {
-                    font-size: 14pt !important; /* Slightly smaller header text */
+                    font-size: 14pt !important;
                 }
                 
                 .sub-header-center, .student-label, .student-list {
@@ -368,13 +374,11 @@ export const GeminiService = {
                 }
             }
 
-            /* CAPA E CONTRA CAPA: Altura Fixa para layout perfeito em Desktop/Print */
             .page.cover-page {
                 height: 29.7cm; 
-                padding: 1.5cm; /* Reduced padding to allow border to fit */
+                padding: 1.5cm; 
             }
 
-            /* MODO DE IMPRESSÃO - Força A4 Padrão */
             @media print {
                 body * { visibility: hidden; }
                 #printable-content, #printable-content * { visibility: visible; }
@@ -397,9 +401,8 @@ export const GeminiService = {
                 }
             }
 
-            /* Borda da Página (Esquadria Académica) - SÓ NA CAPA */
             .page-border {
-                border: 4px double black; /* Borda dupla grossa */
+                border: 4px double black; 
                 height: 100%;
                 width: 100%;
                 padding: 1cm;
@@ -410,7 +413,6 @@ export const GeminiService = {
                 align-items: center;
             }
 
-            /* Container para Contra Capa (Sem Borda, mas mesmo layout) */
             .page-content-wrapper {
                 height: 100%;
                 width: 100%;
@@ -418,12 +420,11 @@ export const GeminiService = {
                 box-sizing: border-box;
                 display: flex;
                 flex-direction: column;
-                justify-content: space-between; /* Garante que o footer vá para baixo */
+                justify-content: space-between; 
                 align-items: center;
                 border: none;
             }
 
-            /* Layout Interno Comum */
             .header-school {
                 text-align: center;
                 font-size: 16pt;
@@ -448,12 +449,11 @@ export const GeminiService = {
                 width: 100%;
             }
 
-            /* SEÇÃO DE ALUNOS - ALINHADA À ESQUERDA */
             .student-section {
                 margin-top: 2cm;
                 width: 100%;
-                text-align: left; /* Garante alinhamento à esquerda */
-                padding-left: 1cm; /* Ligeiro recuo */
+                text-align: left; 
+                padding-left: 1cm; 
             }
 
             .student-label {
@@ -473,13 +473,12 @@ export const GeminiService = {
                 margin-bottom: 5px;
             }
 
-            /* Box de Avaliação (Contra Capa) - ALINHADA À DIREITA */
             .evaluation-container {
                 width: 100%;
                 display: flex;
-                justify-content: flex-end; /* Joga para a direita */
+                justify-content: flex-end; 
                 margin-top: 1cm;
-                margin-bottom: auto; /* Empurra para cima, deixando footer em baixo */
+                margin-bottom: auto; 
             }
             
             .evaluation-box {
@@ -491,9 +490,8 @@ export const GeminiService = {
                 background: white;
             }
 
-            /* Footer Info (Cidade e Data) - Sempre no fundo */
             .footer-info {
-                margin-top: auto; /* Empurra para o fundo absoluto do container */
+                margin-top: auto; 
                 text-align: center;
                 font-weight: bold;
                 font-size: 12pt;
@@ -501,7 +499,6 @@ export const GeminiService = {
                 padding-bottom: 0.5cm;
             }
             
-            /* ESTILIZAÇÃO PROFISSIONAL DO ÍNDICE */
             .index-title {
                 text-align: center;
                 font-weight: bold;
@@ -516,7 +513,7 @@ export const GeminiService = {
             }
             .index-item {
                 display: flex;
-                align-items: flex-end; /* Alinha a linha pontilhada com a base do texto */
+                align-items: flex-end; 
                 margin-bottom: 8px;
                 font-size: 12pt;
             }
@@ -526,8 +523,8 @@ export const GeminiService = {
             }
             .index-dots {
                 flex-grow: 1;
-                border-bottom: 2px dotted black; /* Efeito de pontos */
-                margin: 0 5px 5px 5px; /* Margem para alinhar */
+                border-bottom: 2px dotted black; 
+                margin: 0 5px 5px 5px; 
                 min-width: 20px;
             }
             .index-page {
@@ -535,7 +532,7 @@ export const GeminiService = {
                 white-space: nowrap;
             }
             .index-sub-item .index-label {
-                padding-left: 20px; /* Indentação para subtópicos */
+                padding-left: 20px; 
             }
 
             h1, h2, h3, p { color: black; }
@@ -614,7 +611,6 @@ export const GeminiService = {
                 <ul class="index-list">
                     <li class="index-item"><span class="index-label">1. Introdução</span><span class="index-dots"></span><span class="index-page">4</span></li>
                     <li class="index-item"><span class="index-label">2. Desenvolvimento</span><span class="index-dots"></span><span class="index-page">5</span></li>
-                    <!-- Adicione subtópicos do desenvolvimento aqui ex: 2.1 Conceito -->
                     <li class="index-item index-sub-item"><span class="index-label">2.1 Conceitos Fundamentais</span><span class="index-dots"></span><span class="index-page">5</span></li>
                     <li class="index-item"><span class="index-label">3. Conclusão</span><span class="index-dots"></span><span class="index-page">8</span></li>
                     <li class="index-item"><span class="index-label">4. Bibliografia</span><span class="index-dots"></span><span class="index-page">9</span></li>
@@ -623,9 +619,8 @@ export const GeminiService = {
 
             --- PÁGINAS SEGUINTES (Conteúdo Extenso) ---
             IMPORTANTE: NÃO COLOQUE CIDADE NEM DATA NO RODAPÉ DESTAS PÁGINAS.
-            
             - Introdução (Página Separada)
-            - Desenvolvimento (Texto longo e detalhado, SEM RESUMIR. Use h2, h3 e parágrafos bem escritos. Crie subtópicos relevantes para o tema ${data.topic}.)
+            - Desenvolvimento (Texto longo e detalhado.)
             - Conclusão (Página Separada)
             - Bibliografia (Página Separada)
           `;
@@ -663,6 +658,7 @@ export const GeminiService = {
 
   async humanizeText(text: string, variant: HumanizerVariant): Promise<string> {
     try {
+      const ai = getAiClient();
       const prompt = `
         Aja como um falante nativo de ${variant}. Reescreva o texto para torná-lo natural, fluido e humano.
         Mantenha a formatação HTML se houver.
