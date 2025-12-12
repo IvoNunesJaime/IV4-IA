@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { Mail, Lock, User as UserIcon, Chrome, X, Sparkles, Eye, EyeOff, ArrowRight, BookOpen, FileText, Zap, AlertCircle } from 'lucide-react';
+import { auth, googleProvider } from '../services/firebase';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, updateProfile } from 'firebase/auth';
 
 interface AuthProps {
   isOpen: boolean;
@@ -20,45 +22,123 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
 
   if (!isOpen) return null;
 
+  // Função auxiliar para login de demonstração se o Firebase falhar por configuração
+  const handleDemoFallback = (fallbackEmail: string, fallbackName: string) => {
+    console.warn("Firebase não configurado ou erro de API Key. Usando login de demonstração.");
+    // Pequeno delay para simular rede
+    setTimeout(() => {
+        onLogin({
+            id: 'demo-user-' + Date.now(),
+            email: fallbackEmail || 'demo@iv4.ia',
+            name: fallbackName || 'Utilizador Demo'
+        });
+        alert("⚠️ AVISO: Entrou em MODO DEMONSTRAÇÃO.\n\nAs chaves do Firebase em 'services/firebase.ts' parecem inválidas ou não configuradas.");
+    }, 1000);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
 
-    // Simulated Authentication
-    setTimeout(() => {
-        if (password.length < 6) {
-             setError("A senha deve ter pelo menos 6 caracteres.");
-             setIsLoading(false);
-             return;
+    try {
+        let userCredential;
+
+        if (isLogin) {
+            // Login Real com Firebase
+            userCredential = await signInWithEmailAndPassword(auth, email, password);
+        } else {
+            // Registo Real com Firebase
+            if (password.length < 6) {
+                throw new Error("auth/weak-password");
+            }
+            userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            
+            // Atualizar nome de exibição se fornecido
+            if (name && userCredential.user) {
+                await updateProfile(userCredential.user, {
+                    displayName: name
+                });
+            }
         }
 
-        // Mock User
-        const mockUser: User = {
-            id: Date.now().toString(),
-            email: email,
-            name: name || email.split('@')[0] || 'Utilizador',
+        // Mapear utilizador do Firebase para o tipo User da App
+        const firebaseUser = userCredential.user;
+        const appUser: User = {
+            id: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            name: firebaseUser.displayName || name || email.split('@')[0] || 'Utilizador',
         };
         
-        onLogin(mockUser);
+        onLogin(appUser);
+        
+    } catch (err: any) {
+        console.error("Auth Error:", err.code, err.message);
+        
+        // VERIFICAÇÃO DE ERRO DE CONFIGURAÇÃO (FALLBACK PARA DEMO)
+        if (err.code === 'auth/invalid-api-key' || err.code === 'auth/configuration-not-found' || err.code === 'auth/internal-error') {
+            handleDemoFallback(email, name);
+            return;
+        }
+
+        // Tratamento de Erros Específico
+        if (
+            err.code === 'auth/invalid-credential' || 
+            err.code === 'auth/user-not-found' || 
+            err.code === 'auth/wrong-password' ||
+            err.code === 'auth/invalid-email'
+        ) {
+            setError("Password or Email Incorrect");
+        } else if (err.code === 'auth/email-already-in-use') {
+            setError("Este e-mail já está em uso.");
+        } else if (err.code === 'auth/weak-password') {
+            setError("A senha deve ter pelo menos 6 caracteres.");
+        } else if (err.code === 'auth/too-many-requests') {
+             setError("Muitas tentativas falhadas. Tente novamente mais tarde.");
+        } else {
+            setError("Ocorreu um erro. Verifique a sua conexão.");
+        }
         setIsLoading(false);
-    }, 1500);
+    }
   };
 
   const handleGoogleLogin = async () => {
       setIsLoading(true);
       setError(null);
       
-      // Simulated Google Auth
-      setTimeout(() => {
-          const mockUser: User = {
-              id: 'google_' + Date.now().toString(),
-              email: 'usuario.google@exemplo.com',
-              name: 'Utilizador Google',
+      try {
+          const result = await signInWithPopup(auth, googleProvider);
+          const firebaseUser = result.user;
+          
+          const appUser: User = {
+              id: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              name: firebaseUser.displayName || 'Utilizador Google',
           };
-          onLogin(mockUser);
+          
+          onLogin(appUser);
+      } catch (err: any) {
+          console.error("Google Auth Error:", err);
+
+          // VERIFICAÇÃO DE ERRO DE CONFIGURAÇÃO (FALLBACK PARA DEMO)
+          if (
+              err.code === 'auth/invalid-api-key' || 
+              err.code === 'auth/configuration-not-found' || 
+              err.code === 'auth/operation-not-allowed' ||
+              err.code === 'auth/internal-error' ||
+              err.message?.includes('API key')
+           ) {
+              handleDemoFallback('google-demo@iv4.ia', 'Utilizador Google (Demo)');
+              return;
+          }
+
+          if (err.code === 'auth/popup-closed-by-user') {
+              setError("O login foi cancelado.");
+          } else {
+              setError("Erro ao autenticar com Google. Verifique a configuração do Firebase.");
+          }
           setIsLoading(false);
-      }, 1500);
+      }
   }
 
   return (
@@ -121,8 +201,8 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
             </div>
 
             {error && (
-                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-                    <AlertCircle size={16} />
+                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-sm text-red-600 dark:text-red-400 font-medium">
+                    <AlertCircle size={16} className="shrink-0" />
                     {error}
                 </div>
             )}
