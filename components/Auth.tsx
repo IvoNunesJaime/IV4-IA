@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { Mail, Lock, User as UserIcon, Chrome, X, Sparkles, Eye, EyeOff, ArrowRight, BookOpen, FileText, Zap, AlertCircle } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, Chrome, X, Sparkles, Eye, EyeOff, AlertCircle, FileText, Zap, BookOpen } from 'lucide-react';
 import { auth, googleProvider } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, updateProfile } from 'firebase/auth';
 
@@ -21,24 +21,6 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
-
-  // Função auxiliar para login de demonstração se o Firebase falhar por configuração ou domínio
-  const handleDemoFallback = (fallbackEmail: string, fallbackName: string, reason: string) => {
-    console.warn(`[Auth] Fallback para Modo Demo ativado. Motivo: ${reason}`);
-    
-    // Feedback visual rápido
-    setIsLoading(true);
-    
-    // Pequeno delay para simular rede e permitir leitura do console
-    setTimeout(() => {
-        onLogin({
-            id: 'demo-user-' + Date.now(),
-            email: fallbackEmail || 'demo@iv4.ia',
-            name: fallbackName || 'Utilizador Demo'
-        });
-        setIsLoading(false);
-    }, 1500);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,36 +63,18 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
         
         const errorCode = err.code;
 
-        // SE FOR ERRO TÉCNICO, ATIVA O MODO DEMO IMEDIATAMENTE
-        // Isso permite testar a app mesmo sem backend configurado perfeitamente
-        if (
-            errorCode === 'auth/invalid-api-key' || 
-            errorCode === 'auth/configuration-not-found' || 
-            errorCode === 'auth/internal-error' ||
-            errorCode === 'auth/network-request-failed' ||
-            errorCode === 'auth/api-key-not-valid.-please-pass-a-valid-api-key.'
-        ) {
-            handleDemoFallback(email, name, errorCode);
-            return;
-        }
-
-        // Tratamento de Erros de Usuário (Senha errada, etc)
-        if (
-            errorCode === 'auth/invalid-credential' || 
-            errorCode === 'auth/user-not-found' || 
-            errorCode === 'auth/wrong-password' ||
-            errorCode === 'auth/invalid-email'
-        ) {
+        if (errorCode === 'auth/invalid-credential' || errorCode === 'auth/user-not-found' || errorCode === 'auth/wrong-password') {
             setError("E-mail ou palavra-passe incorretos.");
         } else if (errorCode === 'auth/email-already-in-use') {
-            setError("Este e-mail já está registado.");
+            setError("Este e-mail já está em uso.");
         } else if (errorCode === 'auth/weak-password') {
-            setError("A palavra-passe é muito fraca (mínimo 6 caracteres).");
+            setError("A palavra-passe deve ter pelo menos 6 caracteres.");
         } else if (errorCode === 'auth/too-many-requests') {
-             setError("Muitas tentativas. Aguarde um momento.");
+             setError("Muitas tentativas falhadas. Tente novamente mais tarde.");
+        } else if (errorCode === 'auth/network-request-failed') {
+             setError("Erro de conexão. Verifique sua internet.");
         } else {
-            // Fallback final para erros desconhecidos no formulário de email
-            setError("Erro de conexão. Tente novamente.");
+            setError("Ocorreu um erro ao entrar. Tente novamente.");
         }
         setIsLoading(false);
     }
@@ -121,6 +85,8 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
       setError(null);
       
       try {
+          // Tenta login com popup. 
+          // Requer que o domínio atual esteja na lista "Authorized Domains" no Firebase Console.
           const result = await signInWithPopup(auth, googleProvider);
           const firebaseUser = result.user;
           
@@ -132,19 +98,21 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
           
           onLogin(appUser);
       } catch (err: any) {
-          console.error("Google Auth Error Full:", err);
-          const errorCode = err.code || 'unknown-error';
+          console.error("Google Auth Error:", err);
+          const errorCode = err.code;
 
-          // SE O USUÁRIO FECHOU O POPUP, APENAS AVISAMOS
           if (errorCode === 'auth/popup-closed-by-user') {
-              setError("O login foi cancelado pelo utilizador.");
-              setIsLoading(false);
-              return;
+              setError("O login foi cancelado.");
+          } else if (errorCode === 'auth/popup-blocked') {
+              setError("O navegador bloqueou o popup. Por favor, permita popups.");
+          } else if (errorCode === 'auth/unauthorized-domain') {
+              setError("Domínio não autorizado. Adicione este URL no Firebase Console.");
+          } else if (errorCode === 'auth/network-request-failed') {
+              setError("Erro de rede. Verifique sua conexão e tente novamente.");
+          } else {
+              setError(`Erro na autenticação Google (${errorCode || 'desconhecido'}).`);
           }
-
-          // PARA QUALQUER OUTRO ERRO NO GOOGLE LOGIN (Domínio não autorizado, CORS, Rede, Configuração)
-          // Entramos no MODO DEMO para não frustrar o utilizador.
-          handleDemoFallback('google-demo@iv4.ia', 'Utilizador Google (Demo)', errorCode);
+          setIsLoading(false);
       }
   }
 
@@ -164,7 +132,7 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
                 {triggerReason === 'limit_reached' ? (
                     <div className="mb-6">
                          <div className="inline-flex justify-center mb-4">
-                            <div className="bg-gradient-to-tr from-indigo-500 to-purple-600 text-white p-4 rounded-full shadow-lg shadow-indigo-500/30 animate-pulse">
+                            <div className="bg-gradient-to-tr from-indigo-500 to-purple-600 text-white p-4 rounded-full shadow-lg shadow-indigo-500/30">
                                 <Sparkles size={32} />
                             </div>
                         </div>
@@ -172,23 +140,23 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
                             Limite Gratuito Atingido
                         </h2>
                         <p className="text-gray-600 dark:text-gray-300 text-sm mb-4 leading-relaxed">
-                            Você utilizou suas 6 mensagens gratuitas. Para continuar e desbloquear o poder total do IV4 IA, faça login agora.
+                            Atingiu as suas 6 mensagens gratuitas. Faça login para continuar a usar o IV4 IA sem limites.
                         </p>
 
                         <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4 text-left border border-gray-100 dark:border-gray-700/50">
-                            <h3 className="text-xs font-bold text-gray-50 dark:text-gray-400 uppercase tracking-wider mb-3">Funcionalidades que vai desbloquear:</h3>
+                            <h3 className="text-xs font-bold text-gray-50 dark:text-gray-400 uppercase tracking-wider mb-3">Vantagens da Conta:</h3>
                             <ul className="space-y-2.5">
                                 <li className="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-200">
                                     <div className="bg-indigo-100 dark:bg-indigo-900/30 p-1 rounded text-indigo-600 dark:text-indigo-400"><FileText size={14}/></div>
-                                    Gerador de Trabalhos Escolares (Capa, Índice...)
+                                    Gerador de Trabalhos Escolares
                                 </li>
                                 <li className="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-200">
                                     <div className="bg-purple-100 dark:bg-purple-900/30 p-1 rounded text-purple-600 dark:text-purple-400"><Zap size={14}/></div>
-                                    Humanizador de Texto Avançado
+                                    Humanizador de Texto
                                 </li>
                                 <li className="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-200">
                                     <div className="bg-green-100 dark:bg-green-900/30 p-1 rounded text-green-600 dark:text-green-400"><BookOpen size={14}/></div>
-                                    Acesso ilimitado ao Estúdio de Documentos
+                                    Histórico de Conversas Salvo
                                 </li>
                             </ul>
                         </div>
@@ -203,12 +171,15 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
                         <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                             {isLogin ? 'Bem-vindo de volta' : 'Criar conta'}
                         </h1>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {isLogin ? 'Entre na sua conta para continuar' : 'Registe-se para salvar o seu histórico'}
+                        </p>
                     </>
                 )}
             </div>
 
             {error && (
-                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-sm text-red-600 dark:text-red-400 font-medium animate-shake">
+                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-sm text-red-600 dark:text-red-400 font-medium">
                     <AlertCircle size={16} className="shrink-0" />
                     {error}
                 </div>
@@ -285,14 +256,10 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
             </div>
 
             <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium">
-                <Chrome size={20} className="text-gray-900 dark:text-white" />
+                {isLoading ? <span className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></span> : <Chrome size={20} className="text-gray-900 dark:text-white" />}
                 Continuar com Google
             </button>
             
-            <p className="text-xs text-center text-gray-500 dark:text-gray-500 mt-2">
-                Se houver erro de domínio no Google, entraremos em Modo Demo automaticamente.
-            </p>
-
             <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
             {isLogin ? 'Não tem uma conta?' : 'Já tem uma conta?'}
             <button
