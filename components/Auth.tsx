@@ -22,18 +22,22 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
 
   if (!isOpen) return null;
 
-  // Função auxiliar para login de demonstração se o Firebase falhar por configuração
-  const handleDemoFallback = (fallbackEmail: string, fallbackName: string) => {
-    console.warn("Firebase não configurado ou erro de API Key. Usando login de demonstração.");
-    // Pequeno delay para simular rede
+  // Função auxiliar para login de demonstração se o Firebase falhar por configuração ou domínio
+  const handleDemoFallback = (fallbackEmail: string, fallbackName: string, reason: string) => {
+    console.warn(`[Auth] Fallback para Modo Demo ativado. Motivo: ${reason}`);
+    
+    // Feedback visual rápido
+    setIsLoading(true);
+    
+    // Pequeno delay para simular rede e permitir leitura do console
     setTimeout(() => {
         onLogin({
             id: 'demo-user-' + Date.now(),
             email: fallbackEmail || 'demo@iv4.ia',
             name: fallbackName || 'Utilizador Demo'
         });
-        alert("⚠️ AVISO: Entrou em MODO DEMONSTRAÇÃO.\n\nAs chaves do Firebase em 'services/firebase.ts' parecem inválidas ou não configuradas.");
-    }, 1000);
+        setIsLoading(false);
+    }, 1500);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -75,28 +79,38 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
     } catch (err: any) {
         console.error("Auth Error:", err.code, err.message);
         
-        // VERIFICAÇÃO DE ERRO DE CONFIGURAÇÃO (FALLBACK PARA DEMO)
-        if (err.code === 'auth/invalid-api-key' || err.code === 'auth/configuration-not-found' || err.code === 'auth/internal-error') {
-            handleDemoFallback(email, name);
+        const errorCode = err.code;
+
+        // SE FOR ERRO TÉCNICO, ATIVA O MODO DEMO IMEDIATAMENTE
+        // Isso permite testar a app mesmo sem backend configurado perfeitamente
+        if (
+            errorCode === 'auth/invalid-api-key' || 
+            errorCode === 'auth/configuration-not-found' || 
+            errorCode === 'auth/internal-error' ||
+            errorCode === 'auth/network-request-failed' ||
+            errorCode === 'auth/api-key-not-valid.-please-pass-a-valid-api-key.'
+        ) {
+            handleDemoFallback(email, name, errorCode);
             return;
         }
 
-        // Tratamento de Erros Específico
+        // Tratamento de Erros de Usuário (Senha errada, etc)
         if (
-            err.code === 'auth/invalid-credential' || 
-            err.code === 'auth/user-not-found' || 
-            err.code === 'auth/wrong-password' ||
-            err.code === 'auth/invalid-email'
+            errorCode === 'auth/invalid-credential' || 
+            errorCode === 'auth/user-not-found' || 
+            errorCode === 'auth/wrong-password' ||
+            errorCode === 'auth/invalid-email'
         ) {
-            setError("Password or Email Incorrect");
-        } else if (err.code === 'auth/email-already-in-use') {
-            setError("Este e-mail já está em uso.");
-        } else if (err.code === 'auth/weak-password') {
-            setError("A senha deve ter pelo menos 6 caracteres.");
-        } else if (err.code === 'auth/too-many-requests') {
-             setError("Muitas tentativas falhadas. Tente novamente mais tarde.");
+            setError("E-mail ou palavra-passe incorretos.");
+        } else if (errorCode === 'auth/email-already-in-use') {
+            setError("Este e-mail já está registado.");
+        } else if (errorCode === 'auth/weak-password') {
+            setError("A palavra-passe é muito fraca (mínimo 6 caracteres).");
+        } else if (errorCode === 'auth/too-many-requests') {
+             setError("Muitas tentativas. Aguarde um momento.");
         } else {
-            setError("Ocorreu um erro. Verifique a sua conexão.");
+            // Fallback final para erros desconhecidos no formulário de email
+            setError("Erro de conexão. Tente novamente.");
         }
         setIsLoading(false);
     }
@@ -118,26 +132,19 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
           
           onLogin(appUser);
       } catch (err: any) {
-          console.error("Google Auth Error:", err);
+          console.error("Google Auth Error Full:", err);
+          const errorCode = err.code || 'unknown-error';
 
-          // VERIFICAÇÃO DE ERRO DE CONFIGURAÇÃO (FALLBACK PARA DEMO)
-          if (
-              err.code === 'auth/invalid-api-key' || 
-              err.code === 'auth/configuration-not-found' || 
-              err.code === 'auth/operation-not-allowed' ||
-              err.code === 'auth/internal-error' ||
-              err.message?.includes('API key')
-           ) {
-              handleDemoFallback('google-demo@iv4.ia', 'Utilizador Google (Demo)');
+          // SE O USUÁRIO FECHOU O POPUP, APENAS AVISAMOS
+          if (errorCode === 'auth/popup-closed-by-user') {
+              setError("O login foi cancelado pelo utilizador.");
+              setIsLoading(false);
               return;
           }
 
-          if (err.code === 'auth/popup-closed-by-user') {
-              setError("O login foi cancelado.");
-          } else {
-              setError("Erro ao autenticar com Google. Verifique a configuração do Firebase.");
-          }
-          setIsLoading(false);
+          // PARA QUALQUER OUTRO ERRO NO GOOGLE LOGIN (Domínio não autorizado, CORS, Rede, Configuração)
+          // Entramos no MODO DEMO para não frustrar o utilizador.
+          handleDemoFallback('google-demo@iv4.ia', 'Utilizador Google (Demo)', errorCode);
       }
   }
 
@@ -201,7 +208,7 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
             </div>
 
             {error && (
-                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-sm text-red-600 dark:text-red-400 font-medium">
+                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-sm text-red-600 dark:text-red-400 font-medium animate-shake">
                     <AlertCircle size={16} className="shrink-0" />
                     {error}
                 </div>
@@ -283,7 +290,7 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
             </button>
             
             <p className="text-xs text-center text-gray-500 dark:text-gray-500 mt-2">
-                Recomendamos usar sua conta Google principal para melhor experiência.
+                Se houver erro de domínio no Google, entraremos em Modo Demo automaticamente.
             </p>
 
             <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">

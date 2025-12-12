@@ -1,18 +1,14 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
-// IMPORTANTE: Em um ambiente de produção real, você deve obter esses valores
-// do painel do Firebase Console (Configurações do Projeto).
-// Como estamos em um ambiente simulado, você pode precisar substituir as strings abaixo
-// pelas suas credenciais reais se as variáveis de ambiente não estiverem definidas.
-
+// Configuração do Firebase fornecida
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY || "SUA_API_KEY_AQUI",
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN || "iv4-ia.firebaseapp.com",
-  projectId: process.env.FIREBASE_PROJECT_ID || "iv4-ia",
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID
+  apiKey: "AIzaSyCnP4ybVgLtu7jHiSAZc2OGIga9IR5cPmM",
+  authDomain: "iv4-ia.firebaseapp.com",
+  projectId: "iv4-ia",
+  storageBucket: "iv4-ia.firebasestorage.app",
+  messagingSenderId: "812979853222",
+  appId: "1:812979853222:web:2bce8b33e2655d7edb2167"
 };
 
 // Initialize Firebase
