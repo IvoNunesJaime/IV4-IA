@@ -371,10 +371,19 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
                <div className="w-8 h-8 rounded-lg bg-[#4f46e5] flex items-center justify-center shrink-0 animate-pulse">
                    <Sparkles size={16} className="text-white" />
                </div>
-               <div className="flex items-center gap-1 mt-3">
-                   <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce"></span>
-                   <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-100"></span>
-                   <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-200"></span>
+               <div className="flex flex-col justify-center mt-2">
+                   {isThinkingEnabled ? (
+                       <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400 animate-pulse flex items-center gap-2">
+                          <BrainCircuit size={14} />
+                          A analisar e raciocinar...
+                       </span>
+                   ) : (
+                       <div className="flex items-center gap-1">
+                           <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce"></span>
+                           <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-100"></span>
+                           <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-200"></span>
+                       </div>
+                   )}
                </div>
             </div>
           )}

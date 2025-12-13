@@ -84,7 +84,8 @@ export const GeminiService = {
 
       // Thinking Config (apenas se ativado)
       if (config?.isThinking) {
-        modelConfig.thinkingConfig = { thinkingBudget: 1024 }; // Budget moderado para respostas rápidas mas pensadas
+        // Aumentado para 16384 para permitir raciocínio profundo em tarefas complexas
+        modelConfig.thinkingConfig = { thinkingBudget: 16384 }; 
       }
 
       // Cria a sessão de chat

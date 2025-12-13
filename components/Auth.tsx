@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { Mail, Lock, User as UserIcon, Chrome, X, Sparkles, Eye, EyeOff, AlertCircle, FileText, Zap, BookOpen } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, X, Sparkles, Eye, EyeOff, AlertCircle, FileText, Zap, BookOpen, AlertTriangle } from 'lucide-react';
 import { auth, googleProvider } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, updateProfile } from 'firebase/auth';
 
@@ -106,11 +106,12 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
           } else if (errorCode === 'auth/popup-blocked') {
               setError("O navegador bloqueou o popup. Por favor, permita popups.");
           } else if (errorCode === 'auth/unauthorized-domain') {
-              setError("Domínio não autorizado. Adicione este URL no Firebase Console.");
+              const currentDomain = window.location.hostname;
+              setError(`DOMÍNIO NÃO AUTORIZADO: Adicione "${currentDomain}" no Firebase Console (Authentication > Settings > Authorized Domains).`);
           } else if (errorCode === 'auth/network-request-failed') {
               setError("Erro de rede. Verifique sua conexão e tente novamente.");
           } else {
-              setError(`Erro na autenticação Google (${errorCode || 'desconhecido'}).`);
+              setError(`Erro na autenticação Google (${errorCode || 'desconhecido'}). Tente usar E-mail e Senha.`);
           }
           setIsLoading(false);
       }
@@ -179,9 +180,12 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
             </div>
 
             {error && (
-                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-2 text-sm text-red-600 dark:text-red-400 font-medium">
-                    <AlertCircle size={16} className="shrink-0" />
-                    {error}
+                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex flex-col gap-2 text-sm text-red-600 dark:text-red-400 font-medium">
+                    <div className="flex items-center gap-2">
+                        <AlertTriangle size={16} className="shrink-0" />
+                        <span className="font-bold">Atenção:</span>
+                    </div>
+                    <p className="break-words leading-relaxed">{error}</p>
                 </div>
             )}
 
@@ -256,7 +260,15 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
             </div>
 
             <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors font-medium">
-                {isLoading ? <span className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></span> : <Chrome size={20} className="text-gray-900 dark:text-white" />}
+                {isLoading ? (
+                    <span className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></span>
+                ) : (
+                    <img 
+                        src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" 
+                        alt="Google" 
+                        className="w-5 h-5" 
+                    />
+                )}
                 Continuar com Google
             </button>
             
