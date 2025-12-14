@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Image as ImageIcon, Code, Zap, Sparkles, Paperclip, X, FileText, Square, Copy, Check, Globe, BrainCircuit, ArrowUp, Plus, Book, Lightbulb, GraduationCap } from 'lucide-react';
 import { GeminiService } from '../services/geminiService';
 import { Message, User, ChatSession } from '../types';
+import { Logo } from './Logo';
 
 interface ChatProps {
     user: User | null;
@@ -263,9 +264,9 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
         <div className="flex flex-col h-full bg-gray-50 dark:bg-[#030712] text-gray-900 dark:text-white overflow-hidden relative transition-colors duration-300">
             <div className="flex-grow flex flex-col items-center justify-center px-4 w-full max-w-2xl mx-auto z-10 pb-20">
                 
-                {/* Greeting Icon */}
-                <div className="mb-8 p-5 bg-white dark:bg-[#1f2937]/50 rounded-2xl border border-gray-200 dark:border-white/5 shadow-lg shadow-indigo-500/10">
-                    <Sparkles size={42} className="text-indigo-600 dark:text-white" />
+                {/* Greeting Icon - Updated to Logo */}
+                <div className="mb-8 hover:scale-105 transition-transform duration-300">
+                    <Logo size={72} />
                 </div>
 
                 {/* Greeting Text */}
@@ -337,8 +338,8 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
                 {/* AI Message */}
                 {msg.role === 'model' && (
                     <div className="flex gap-4">
-                        <div className="w-8 h-8 rounded-lg bg-[#4f46e5] flex items-center justify-center shrink-0 shadow-sm mt-1">
-                            <Sparkles size={16} className="text-white" />
+                        <div className="shrink-0 mt-1">
+                            <Logo size={32} />
                         </div>
                         <div className="flex-grow min-w-0 pt-1">
                             <div className="text-gray-800 dark:text-gray-200 text-base leading-relaxed">
@@ -368,8 +369,8 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
           {/* Loading Indicator (Only show if NOT streaming text yet and IS loading) */}
           {isLoading && !isStreaming && (
             <div className="flex gap-4">
-               <div className="w-8 h-8 rounded-lg bg-[#4f46e5] flex items-center justify-center shrink-0 animate-pulse">
-                   <Sparkles size={16} className="text-white" />
+               <div className="shrink-0 mt-1 animate-pulse">
+                   <Logo size={32} />
                </div>
                <div className="flex flex-col justify-center mt-2">
                    {isThinkingEnabled ? (

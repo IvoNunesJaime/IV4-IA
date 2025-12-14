@@ -3,6 +3,7 @@ import { User } from '../types';
 import { Mail, Lock, User as UserIcon, X, Sparkles, Eye, EyeOff, AlertCircle, FileText, Zap, BookOpen, AlertTriangle } from 'lucide-react';
 import { auth, googleProvider } from '../services/firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, updateProfile } from 'firebase/auth';
+import { Logo } from './Logo';
 
 interface AuthProps {
   isOpen: boolean;
@@ -133,9 +134,7 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
                 {triggerReason === 'limit_reached' ? (
                     <div className="mb-6">
                          <div className="inline-flex justify-center mb-4">
-                            <div className="bg-gradient-to-tr from-indigo-500 to-purple-600 text-white p-4 rounded-full shadow-lg shadow-indigo-500/30">
-                                <Sparkles size={32} />
-                            </div>
+                            <Logo size={64} />
                         </div>
                         <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                             Limite Gratuito Atingido
@@ -165,8 +164,8 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
                 ) : (
                     <>
                         <div className="flex justify-center mb-6">
-                            <div className="bg-indigo-600 text-white p-3 rounded-2xl shadow-lg shadow-indigo-200 dark:shadow-none rotate-3 hover:rotate-6 transition-transform">
-                                <Sparkles size={28} />
+                            <div className="rotate-3 hover:rotate-6 transition-transform">
+                                <Logo size={64} />
                             </div>
                         </div>
                         <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">

@@ -18,6 +18,7 @@ export interface ChatSession {
   messages: Message[];
   createdAt: number;
   lastMessageAt: number;
+  userId?: string; // ID do utilizador dono da conversa (opcional para visitantes)
 }
 
 export interface DocumentData {
