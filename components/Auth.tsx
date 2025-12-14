@@ -106,12 +106,12 @@ export const Auth: React.FC<AuthProps> = ({ isOpen, onClose, onLogin, triggerRea
           } else if (errorCode === 'auth/popup-blocked') {
               setError("O navegador bloqueou o popup. Por favor, permita popups.");
           } else if (errorCode === 'auth/unauthorized-domain') {
-              const currentDomain = window.location.hostname;
-              setError(`DOMÍNIO NÃO AUTORIZADO: Adicione "${currentDomain}" no Firebase Console (Authentication > Settings > Authorized Domains).`);
+              // Mensagem substituída conforme solicitado pelo usuário
+              setError("A opção 'Continuar com Google' está em manutenção. Por favor, adicione seu e-mail no campo acima ou tente mais tarde.");
           } else if (errorCode === 'auth/network-request-failed') {
               setError("Erro de rede. Verifique sua conexão e tente novamente.");
           } else {
-              setError(`Erro na autenticação Google (${errorCode || 'desconhecido'}). Tente usar E-mail e Senha.`);
+              setError(`Erro na autenticação Google. A opção pode estar em manutenção. Tente usar E-mail e Palavra-passe.`);
           }
           setIsLoading(false);
       }

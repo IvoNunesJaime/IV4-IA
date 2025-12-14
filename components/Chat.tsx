@@ -440,9 +440,10 @@ const InputArea = ({
                     <div className="flex items-center gap-2 px-2 pb-2">
                         <button 
                             onClick={() => setIsThinkingEnabled(!isThinkingEnabled)}
-                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${isThinkingEnabled ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'}`}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${isThinkingEnabled ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 ring-1 ring-indigo-500/30' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 border border-transparent'}`}
+                            title="Ativar Raciocínio (Thinking Mode) para respostas mais complexas"
                         >
-                            <BrainCircuit size={14} />
+                            <BrainCircuit size={14} className={isThinkingEnabled ? "animate-pulse" : ""} />
                             Raciocínio {isThinkingEnabled ? 'On' : 'Off'}
                         </button>
                          <button 

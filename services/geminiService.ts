@@ -84,8 +84,8 @@ export const GeminiService = {
 
       // Thinking Config (apenas se ativado)
       if (config?.isThinking) {
-        // Aumentado para 16384 para permitir raciocínio profundo em tarefas complexas
-        modelConfig.thinkingConfig = { thinkingBudget: 16384 }; 
+        // Aumentado para 24576 (max para Flash) para permitir raciocínio profundo em tarefas complexas
+        modelConfig.thinkingConfig = { thinkingBudget: 24576 }; 
       }
 
       // Cria a sessão de chat
