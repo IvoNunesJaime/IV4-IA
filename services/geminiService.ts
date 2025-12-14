@@ -14,7 +14,8 @@ const getAiClient = () => {
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Wrapper genérico para Retry com Exponential Backoff
-async function withRetry<T>(operation: () => Promise<T>, retries = 3, initialDelay = 2000): Promise<T> {
+// ATUALIZADO: Aumentado para 10 tentativas padrão e delay inicial de 5s para cobrir janelas de 60s+ do Google
+async function withRetry<T>(operation: () => Promise<T>, retries = 10, initialDelay = 5000): Promise<T> {
     let lastError: any;
     
     for (let i = 0; i < retries; i++) {
@@ -31,9 +32,12 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 3, initialDel
                 // Se for a última tentativa, não espera, deixa falhar
                 if (i === retries - 1) break;
 
-                // Exponential Backoff: 2s, 4s, 8s...
-                const delay = initialDelay * Math.pow(2, i);
-                console.warn(`[IV4 IA] Rate limit atingido. Tentando novamente em ${delay}ms... (Tentativa ${i + 1}/${retries})`);
+                // Exponential Backoff com um teto máximo de 30 segundos por espera para não ficar infinito
+                // 5s, 10s, 20s, 30s, 30s, 30s...
+                const calcDelay = initialDelay * Math.pow(2, i);
+                const delay = Math.min(calcDelay, 30000); 
+
+                console.warn(`[IV4 IA] Limite de tráfego (Rate Limit 429). A aguardar ${delay/1000}s para tentar novamente... (Tentativa ${i + 1}/${retries})`);
                 await wait(delay);
                 continue;
             }
@@ -130,7 +134,7 @@ export const GeminiService = {
         config: modelConfig
       });
 
-      // Envolvemos a chamada de envio em Retry
+      // Envolvemos a chamada de envio em Retry com configurações agressivas
       await withRetry(async () => {
           let responseStream;
           
@@ -161,7 +165,7 @@ export const GeminiService = {
                 onChunk(text);
             }
           }
-      }, 3, 3000); // Tenta 3 vezes, começando com 3s de espera
+      }, 10, 5000); // 10 Tentativas, começa com 5s. Cobre ~4 minutos de falha.
 
     } catch (error: any) {
       console.error("Chat Stream Error:", error);
@@ -175,7 +179,7 @@ export const GeminiService = {
          let errorDetails = error.message || error.toString();
          
          if (errorDetails.includes('429') || errorDetails.includes('Quota exceeded')) {
-             errorDetails = "Servidor sobrecarregado (Muitas requisições). Tentei reconectar mas o limite persiste. Aguarde 1 minuto.";
+             errorDetails = "O tráfego está muito alto no momento (Quota Google Esgotada). Por favor, aguarde 1 ou 2 minutos e tente novamente. O sistema tentou reconectar automaticamente várias vezes sem sucesso.";
          }
 
          // Mensagem amigável mas técnica o suficiente para debug
@@ -308,7 +312,7 @@ export const GeminiService = {
                 isReady: false 
             };
         }
-    });
+    }, 5, 4000); // 5 Tentativas para negociação
   },
 
   async editDocumentFragment(currentHTML: string, userInstruction: string): Promise<string> {
@@ -346,7 +350,7 @@ export const GeminiService = {
             console.error("Edit Error:", error);
             throw error;
         }
-    });
+    }, 5, 4000);
   },
 
   async generateDocument(data: any, addBorder: boolean = true): Promise<string> {
@@ -722,7 +726,7 @@ export const GeminiService = {
         console.error("Gemini Document Error:", error);
         throw error;
       }
-    });
+    }, 5, 4000);
   },
 
   async humanizeText(text: string, variant: HumanizerVariant): Promise<string> {
@@ -743,6 +747,6 @@ export const GeminiService = {
             console.error("Humanizer Error:", error);
             throw error;
         }
-    });
+    }, 5, 4000);
   }
 };
