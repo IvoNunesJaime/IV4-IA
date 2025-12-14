@@ -13,11 +13,11 @@ const getAiClient = () => {
 // Função auxiliar para esperar (delay)
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Wrapper genérico para Retry com Feedback
+// Wrapper genérico para Retry com Feedback Inteligente
 async function withRetry<T>(
     operation: () => Promise<T>, 
     onStatusUpdate?: (msg: string) => void,
-    retries = 8, 
+    retries = 5, // Reduzimos tentativas mas aumentamos a precisão do tempo
     initialDelay = 2000
 ): Promise<T> {
     let lastError: any;
@@ -28,30 +28,40 @@ async function withRetry<T>(
         } catch (error: any) {
             lastError = error;
             
-            // Verifica códigos de erro comuns para Rate Limit (429) ou Serviço Indisponível (503)
-            const isRateLimit = error.code === 429 || error.status === 429 || error.message?.includes('429') || error.message?.includes('Quota exceeded');
+            const errorMsg = error.message || error.toString();
+            const isRateLimit = error.code === 429 || error.status === 429 || errorMsg.includes('429') || errorMsg.includes('Quota exceeded') || errorMsg.includes('RESOURCE_EXHAUSTED');
             const isServerOverload = error.code === 503 || error.status === 503;
 
             if (isRateLimit || isServerOverload) {
-                // Se for a última tentativa, não espera, deixa falhar
                 if (i === retries - 1) break;
 
-                // Delay progressivo: 2s, 4s, 8s, 16s... até max 30s
-                const calcDelay = initialDelay * Math.pow(2, i);
-                const delay = Math.min(calcDelay, 20000); 
-
-                const waitMsg = `\n\n[⚠️ Tráfego alto. Aguardando ${delay/1000}s para reconectar...]`;
-                console.warn(waitMsg);
+                // Tenta extrair o tempo exato sugerido pelo Google
+                // Exemplo: "Please retry in 27.65977238s."
+                let waitTime = initialDelay * Math.pow(2, i); // Fallback exponential
                 
+                const timeMatch = errorMsg.match(/retry in (\d+(\.\d+)?)s/);
+                if (timeMatch && timeMatch[1]) {
+                    const seconds = parseFloat(timeMatch[1]);
+                    waitTime = Math.ceil(seconds * 1000) + 2000; // Tempo exato + 2s de segurança
+                    console.log(`[IV4 IA] Google pediu espera de ${seconds}s. Aguardando ${waitTime}ms.`);
+                } else {
+                    // Se não conseguir ler, usa exponential backoff limitado a 60s
+                    waitTime = Math.min(waitTime, 60000); 
+                }
+
+                const waitSeconds = Math.ceil(waitTime / 1000);
+                const waitMsg = `\n\n⏳ **Limite de tráfego atingido.** Aguardando ${waitSeconds}s para continuar automaticamente...`;
+                
+                console.warn(waitMsg);
                 if (onStatusUpdate) {
                     onStatusUpdate(waitMsg);
                 }
 
-                await wait(delay);
+                await wait(waitTime);
                 continue;
             }
             
-            // Se for outro erro (ex: 400 Bad Request), falha imediatamente
+            // Outros erros
             throw error;
         }
     }
@@ -67,7 +77,7 @@ export const GeminiService = {
       message: string, 
       onChunk: (text: string) => void,
       mediaBase64?: string, 
-      mediaType?: string,
+      mediaType?: string, 
       signal?: AbortSignal,
       config?: { isThinking?: boolean; isSearch?: boolean }
   ): Promise<void> {
@@ -108,9 +118,9 @@ export const GeminiService = {
 
       if (tools.length > 0) modelConfig.tools = tools;
       
-      // Thinking (Raciocínio)
+      // Thinking (Raciocínio) - Desativado temporariamente se houver erro para economizar tokens
       if (config?.isThinking) {
-        modelConfig.thinkingConfig = { thinkingBudget: 16384 }; // Ajustado para ser mais rápido
+        modelConfig.thinkingConfig = { thinkingBudget: 16384 }; 
       }
 
       const chat = ai.chats.create({
@@ -119,7 +129,7 @@ export const GeminiService = {
         config: modelConfig
       });
 
-      // Executa com Retry e Feedback Visual
+      // Executa com Retry Inteligente
       await withRetry(async () => {
           let responseStream;
           
@@ -154,10 +164,14 @@ export const GeminiService = {
 
       if (!signal?.aborted) {
          let errorDetails = error.message || error.toString();
+         // Tradução amigável de erros comuns
          if (errorDetails.includes('429') || errorDetails.includes('Quota exceeded')) {
-             errorDetails = "Limite de uso gratuito atingido. O servidor está muito ocupado. Tente novamente em 1 minuto.";
+             errorDetails = "O servidor está temporariamente cheio (Limite de tráfego). Por favor, aguarde 1 minuto antes de tentar novamente.";
+         } else if (errorDetails.includes('503')) {
+             errorDetails = "O serviço da Google está instável no momento. Tente novamente em breve.";
          }
-         onChunk(`\n\n⚠️ **Erro Final:** ${errorDetails}`);
+         
+         onChunk(`\n\n⚠️ **Erro de Conexão:** ${errorDetails}`);
       }
     }
   },
@@ -205,7 +219,7 @@ export const GeminiService = {
 
             return JSON.parse(response.text || "{}");
         } catch (error) {
-            return { reply: "Erro de conexão. Pode repetir?", extractedData: {}, isReady: false };
+            return { reply: "Estou a ter dificuldades de conexão devido ao alto tráfego. Pode repetir?", extractedData: {}, isReady: false };
         }
     });
   },
@@ -224,7 +238,6 @@ export const GeminiService = {
   async generateDocument(data: any, addBorder: boolean = true): Promise<string> {
     return withRetry(async () => {
         const ai = getAiClient();
-        // Construção simplificada para garantir execução
         const prompt = `
             Crie um documento HTML Académico Completo (Moçambique).
             Dados: ${JSON.stringify(data)}.
