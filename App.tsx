@@ -25,24 +25,27 @@ const App: React.FC = () => {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
-  // Ref to track current session ID inside async callbacks (prevents duplication during streaming)
+  // Ref to track current session ID inside async callbacks
   const currentSessionIdRef = useRef<string | null>(currentSessionId);
 
-  // Helpers para LocalStorage
-  const getAllSessionsFromStorage = (): ChatSession[] => {
+  // --- PERFORMANCE OPTIMIZATION: Session Cache ---
+  // We use a Ref to store the full list of sessions in memory.
+  // This avoids reading and JSON.parsing from localStorage on every single update.
+  const allSessionsRef = useRef<ChatSession[]>([]);
+  const isStorageInitialized = useRef(false);
+
+  const persistSessions = (updatedSessions: ChatSession[]) => {
       try {
-          const saved = localStorage.getItem('iv4_chat_sessions');
-          return saved ? JSON.parse(saved) : [];
+          // Write to Storage
+          localStorage.setItem('iv4_chat_sessions', JSON.stringify(updatedSessions));
+          // Update Memory Cache
+          allSessionsRef.current = updatedSessions;
       } catch (e) {
-          return [];
+          console.error("Failed to save sessions to localStorage", e);
       }
   };
 
-  const saveAllSessionsToStorage = (allSessions: ChatSession[]) => {
-      localStorage.setItem('iv4_chat_sessions', JSON.stringify(allSessions));
-  };
-
-  // Handle Dark Mode Class (Separated to avoid re-triggering initialization)
+  // Handle Dark Mode Class
   useEffect(() => {
     if (isDarkMode) {
         document.documentElement.classList.add('dark');
@@ -53,7 +56,19 @@ const App: React.FC = () => {
 
   // Initialization & Data Loading (Runs once on mount)
   useEffect(() => {
-    // Restore User from LocalStorage
+    // 1. Initialize Session Cache from Storage
+    try {
+        const saved = localStorage.getItem('iv4_chat_sessions');
+        if (saved) {
+            allSessionsRef.current = JSON.parse(saved);
+        }
+    } catch (e) {
+        console.error("Failed to load sessions", e);
+        allSessionsRef.current = [];
+    }
+    isStorageInitialized.current = true;
+
+    // 2. Restore User from LocalStorage
     const savedUser = localStorage.getItem('iv4_user');
     let loadedUser = null;
     if (savedUser) {
@@ -76,9 +91,10 @@ const App: React.FC = () => {
     setCurrentSessionId(null);
   }, []); 
 
-  // Função para carregar e filtrar sessões baseado no utilizador atual
+  // Função para carregar e filtrar sessões baseado no utilizador atual (Lê do Cache)
   const loadFilteredSessions = (currentUser: User | null) => {
-      const allSessions = getAllSessionsFromStorage();
+      // Ensure we use the cache
+      const allSessions = allSessionsRef.current;
       
       const filtered = allSessions.filter(s => {
           if (currentUser) {
@@ -95,20 +111,22 @@ const App: React.FC = () => {
 
   // Recarregar sessões sempre que o utilizador muda
   useEffect(() => {
-      loadFilteredSessions(user);
-      // Se a sessão atual não pertencer ao novo utilizador (ou falta dela), resetar para nova conversa
-      // Isso evita ver o chat do utilizador anterior por breves momentos
-      if (currentSessionId) {
-          const allSessions = getAllSessionsFromStorage();
-          const session = allSessions.find(s => s.id === currentSessionId);
-          if (session) {
-              const belongsToUser = user ? session.userId === user.id : !session.userId;
-              if (!belongsToUser) {
-                  setCurrentSessionId(null);
+      if (isStorageInitialized.current) {
+          loadFilteredSessions(user);
+          
+          // Se a sessão atual não pertencer ao novo utilizador, resetar
+          if (currentSessionId) {
+              const allSessions = allSessionsRef.current;
+              const session = allSessions.find(s => s.id === currentSessionId);
+              if (session) {
+                  const belongsToUser = user ? session.userId === user.id : !session.userId;
+                  if (!belongsToUser) {
+                      setCurrentSessionId(null);
+                  }
               }
           }
       }
-  }, [user?.id]); // Depender apenas do ID para evitar loops
+  }, [user?.id]);
 
   // Sync Ref with State
   useEffect(() => {
@@ -137,19 +155,12 @@ const App: React.FC = () => {
   const deleteSession = (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
       
-      // 1. Carregar TUDO do storage
-      const allSessions = getAllSessionsFromStorage();
-      
-      // 2. Filtrar removendo a sessão alvo
+      const allSessions = allSessionsRef.current;
       const updatedAll = allSessions.filter(s => s.id !== id);
       
-      // 3. Guardar TUDO de volta
-      saveAllSessionsToStorage(updatedAll);
-      
-      // 4. Atualizar a visualização local
+      persistSessions(updatedAll);
       loadFilteredSessions(user);
       
-      // Se apagámos a sessão ativa, resetar para nova conversa
       if (currentSessionId === id) {
           setCurrentSessionId(null);
       }
@@ -157,7 +168,8 @@ const App: React.FC = () => {
 
   const handleSessionUpdate = (messages: Message[]) => {
       const activeId = currentSessionIdRef.current;
-      const allSessions = getAllSessionsFromStorage();
+      // Read from Memory Cache instead of LocalStorage
+      const allSessions = allSessionsRef.current;
       let updatedAllSessions = [...allSessions];
 
       if (activeId) {
@@ -165,7 +177,7 @@ const App: React.FC = () => {
           const sessionIndex = updatedAllSessions.findIndex(s => s.id === activeId);
           
           if (sessionIndex !== -1) {
-              // Gerar título se for 'Nova Conversa'
+              // Generate Title Logic
               let newTitle = updatedAllSessions[sessionIndex].title;
               if ((newTitle === 'Nova Conversa' || !newTitle) && messages.length > 0) {
                   const firstUserMsg = messages.find(m => m.role === 'user');
@@ -179,7 +191,7 @@ const App: React.FC = () => {
                   messages,
                   title: newTitle,
                   lastMessageAt: Date.now(),
-                  userId: user?.id // Garante que se o user logou entretanto, a sessão fica atualizada
+                  userId: user?.id
               };
           }
       } else {
@@ -201,17 +213,17 @@ const App: React.FC = () => {
               messages: messages,
               createdAt: Date.now(),
               lastMessageAt: Date.now(),
-              userId: user?.id // Associa ao utilizador se logado
+              userId: user?.id
           };
 
           updatedAllSessions = [newSession, ...updatedAllSessions];
           setCurrentSessionId(newId);
       }
 
-      // Guardar no Storage Global e Atualizar View Local
-      saveAllSessionsToStorage(updatedAllSessions);
+      // Save to Storage & Cache efficiently
+      persistSessions(updatedAllSessions);
       
-      // Filtra para o estado local baseado no user atual
+      // Update local view state
       const filtered = updatedAllSessions.filter(s => {
           if (user) return s.userId === user.id;
           return !s.userId;
@@ -225,20 +237,17 @@ const App: React.FC = () => {
     localStorage.removeItem('iv4_user');
     setCurrentSessionId(null);
     setCurrentView(AppView.CHAT);
-    // useEffect do [user] vai tratar de recarregar as sessões de visitante
   };
 
   const handleLoginSuccess = (loggedInUser: User) => {
-    // Lógica ChatGPT: Se eu tenho uma conversa ativa como visitante e faço login,
-    // essa conversa passa a ser do meu utilizador novo.
+    // Migrate active visitor session to new user if exists
     if (currentSessionId) {
-        const allSessions = getAllSessionsFromStorage();
+        const allSessions = allSessionsRef.current;
         const sessionIndex = allSessions.findIndex(s => s.id === currentSessionId);
         
         if (sessionIndex !== -1 && !allSessions[sessionIndex].userId) {
-            // Migrar sessão de visitante para o novo utilizador
             allSessions[sessionIndex].userId = loggedInUser.id;
-            saveAllSessionsToStorage(allSessions);
+            persistSessions([...allSessions]);
         }
     }
 
@@ -246,7 +255,6 @@ const App: React.FC = () => {
     localStorage.setItem('iv4_user', JSON.stringify(loggedInUser));
     setIsAuthModalOpen(false);
     setAuthReason('user_action');
-    // useEffect do [user] vai recarregar a lista correta
   };
 
   const checkUsageLimit = (): boolean => {

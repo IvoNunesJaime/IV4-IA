@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Copy, ArrowRight, RotateCcw, Check, Quote } from 'lucide-react';
+import { Sparkles, Copy, ArrowRight, RotateCcw, Check, Quote, AlertTriangle } from 'lucide-react';
 import { HumanizerVariant } from '../types';
 import { GeminiService } from '../services/geminiService';
 
@@ -13,6 +13,7 @@ export const HumanizerView: React.FC<HumanizerViewProps> = ({ initialText, check
   const [outputText, setOutputText] = useState('');
   const [selectedVariant, setSelectedVariant] = useState<HumanizerVariant>(HumanizerVariant.PT_PT);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialText) {
@@ -26,15 +27,14 @@ export const HumanizerView: React.FC<HumanizerViewProps> = ({ initialText, check
 
     setIsProcessing(true);
     setOutputText('');
+    setErrorMsg(null);
     try {
-        // Remove HTML tags for the standalone view to focus on text flow, 
-        // unless it looks strictly formatted. For general chat text, clean is better.
         const cleanText = inputText.replace(/<[^>]*>?/gm, ' ');
         const result = await GeminiService.humanizeText(cleanText, selectedVariant);
         setOutputText(result);
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
-        setOutputText("Erro ao humanizar o texto. Tente novamente.");
+        setErrorMsg(error.message || "Erro ao humanizar o texto. Tente novamente.");
     } finally {
         setIsProcessing(false);
     }
@@ -118,7 +118,15 @@ export const HumanizerView: React.FC<HumanizerViewProps> = ({ initialText, check
                     </label>
                     
                     <div className="flex-grow w-full bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-lg p-4 relative overflow-y-auto">
-                        {outputText ? (
+                        {errorMsg ? (
+                            <div className="flex flex-col items-center justify-center h-full text-center p-4">
+                                <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-full mb-3 text-red-500">
+                                    <AlertTriangle size={32} />
+                                </div>
+                                <h3 className="text-red-600 dark:text-red-400 font-semibold mb-1">Falha na Humanização</h3>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">{errorMsg}</p>
+                            </div>
+                        ) : outputText ? (
                             <p className="whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200">
                                 {outputText}
                             </p>

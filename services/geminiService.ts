@@ -13,11 +13,37 @@ const getAiClient = () => {
 // Função auxiliar para esperar (delay)
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/**
+ * Traduz erros técnicos para mensagens amigáveis ao utilizador (PT-MZ/PT-PT)
+ */
+const getFriendlyErrorMessage = (error: any): string => {
+    const msg = error.message || error.toString();
+    
+    if (msg.includes("API_KEY_MISSING")) return "Chave de API não configurada. Contacte o administrador.";
+    if (msg.includes("429") || msg.includes("Quota exceeded") || msg.includes("RESOURCE_EXHAUSTED")) {
+        return "⚠️ O sistema está com muito tráfego (Limite de Quota). Por favor, aguarde 1 minuto e tente novamente.";
+    }
+    if (msg.includes("503") || msg.includes("Overloaded")) {
+        return "⚠️ Os servidores da Google estão sobrecarregados. Tente novamente em breve.";
+    }
+    if (msg.includes("fetch failed") || msg.includes("NetworkError") || msg.includes("Failed to fetch")) {
+        return "⚠️ Erro de conexão. Verifique a sua ligação à internet.";
+    }
+    if (msg.includes("SAFETY") || msg.includes("blocked")) {
+        return "⚠️ A resposta foi bloqueada pelos filtros de segurança (Conteúdo sensível). Tente reformular a sua pergunta.";
+    }
+    if (msg.includes("400") || msg.includes("INVALID_ARGUMENT")) {
+        return "⚠️ O pedido foi rejeitado. O texto ou ficheiro pode ser demasiado grande ou inválido.";
+    }
+
+    return "⚠️ Ocorreu um erro inesperado ao comunicar com a IA.";
+};
+
 // Wrapper genérico para Retry com Feedback Inteligente
 async function withRetry<T>(
     operation: () => Promise<T>, 
     onStatusUpdate?: (msg: string) => void,
-    retries = 5, // Reduzimos tentativas mas aumentamos a precisão do tempo
+    retries = 3, // Reduzido para evitar esperas longas na UI
     initialDelay = 2000
 ): Promise<T> {
     let lastError: any;
@@ -27,41 +53,33 @@ async function withRetry<T>(
             return await operation();
         } catch (error: any) {
             lastError = error;
-            
             const errorMsg = error.message || error.toString();
-            const isRateLimit = error.code === 429 || error.status === 429 || errorMsg.includes('429') || errorMsg.includes('Quota exceeded') || errorMsg.includes('RESOURCE_EXHAUSTED');
-            const isServerOverload = error.code === 503 || error.status === 503;
+            
+            // Não faz retry para erros fatais (Auth, Bad Request, Safety)
+            if (errorMsg.includes("API_KEY") || errorMsg.includes("400") || errorMsg.includes("SAFETY")) {
+                throw error;
+            }
 
-            if (isRateLimit || isServerOverload) {
+            const isRateLimit = errorMsg.includes('429') || errorMsg.includes('Quota') || errorMsg.includes('RESOURCE');
+            const isServerOverload = errorMsg.includes('503');
+            const isNetworkError = errorMsg.includes('fetch failed');
+
+            if (isRateLimit || isServerOverload || isNetworkError) {
                 if (i === retries - 1) break;
 
-                // Tenta extrair o tempo exato sugerido pelo Google
-                // Exemplo: "Please retry in 27.65977238s."
-                let waitTime = initialDelay * Math.pow(2, i); // Fallback exponential
+                let waitTime = initialDelay * Math.pow(2, i);
                 
-                const timeMatch = errorMsg.match(/retry in (\d+(\.\d+)?)s/);
-                if (timeMatch && timeMatch[1]) {
-                    const seconds = parseFloat(timeMatch[1]);
-                    waitTime = Math.ceil(seconds * 1000) + 2000; // Tempo exato + 2s de segurança
-                    console.log(`[IV4 IA] Google pediu espera de ${seconds}s. Aguardando ${waitTime}ms.`);
-                } else {
-                    // Se não conseguir ler, usa exponential backoff limitado a 60s
-                    waitTime = Math.min(waitTime, 60000); 
-                }
-
-                const waitSeconds = Math.ceil(waitTime / 1000);
-                const waitMsg = `\n\n⏳ **Limite de tráfego atingido.** Aguardando ${waitSeconds}s para continuar automaticamente...`;
-                
-                console.warn(waitMsg);
+                // Feedback visual se fornecido
                 if (onStatusUpdate) {
-                    onStatusUpdate(waitMsg);
+                    const friendly = getFriendlyErrorMessage(error);
+                    onStatusUpdate(`\n\n_${friendly} Tentando novamente (${i+1}/${retries})..._`);
                 }
 
+                console.log(`[IV4 IA] Retry ${i+1}/${retries} após erro: ${errorMsg}`);
                 await wait(waitTime);
                 continue;
             }
             
-            // Outros erros
             throw error;
         }
     }
@@ -81,6 +99,8 @@ export const GeminiService = {
       signal?: AbortSignal,
       config?: { isThinking?: boolean; isSearch?: boolean }
   ): Promise<void> {
+    let hasReceivedContent = false;
+
     try {
       const ai = getAiClient();
 
@@ -90,20 +110,17 @@ export const GeminiService = {
         hour: '2-digit', minute: '2-digit'
       };
       const currentFullDate = now.toLocaleDateString('pt-PT', options);
-      const currentYear = now.getFullYear();
 
       const systemInstruction = `
         Você é o IV4 IA, um assistente de inteligência artificial avançado.
         
         == CONTEXTO ==
-        HOJE: ${currentFullDate}. ANO: ${currentYear}.
+        HOJE: ${currentFullDate}.
         LOCAL: Moçambique.
-        PRESIDENTE MOÇAMBIQUE: Daniel Chapo.
         CRIADOR: Ivo Nunes Jaime (Lichinga, Niassa).
 
         == DIRETRIZES ==
         - Seja útil, académico e educado.
-        - Use emojis moderadamente 🚀.
         - Idioma: Português (Moçambique).
         - ${config?.isSearch ? 'Use Google Search se necessário.' : 'Use seu conhecimento interno.'}
       `;
@@ -118,7 +135,6 @@ export const GeminiService = {
 
       if (tools.length > 0) modelConfig.tools = tools;
       
-      // Thinking (Raciocínio) - Desativado temporariamente se houver erro para economizar tokens
       if (config?.isThinking) {
         modelConfig.thinkingConfig = { thinkingBudget: 16384 }; 
       }
@@ -129,7 +145,6 @@ export const GeminiService = {
         config: modelConfig
       });
 
-      // Executa com Retry Inteligente
       await withRetry(async () => {
           let responseStream;
           
@@ -148,30 +163,28 @@ export const GeminiService = {
           for await (const chunk of responseStream) {
             if (signal?.aborted) break;
             const text = chunk.text;
-            if (text) onChunk(text);
+            if (text) {
+                hasReceivedContent = true;
+                onChunk(text);
+            }
           }
       }, (statusMsg) => {
-          // Callback chamado quando entramos em modo de espera
-          onChunk(statusMsg);
+          // Apenas mostra mensagens de "Tentando novamente" se já recebemos algo, 
+          // caso contrário a UI lida com o erro inicial
+          if (hasReceivedContent) onChunk(statusMsg);
       });
 
     } catch (error: any) {
       console.error("Chat Stream Error:", error);
       
-      if (error.message === "API_KEY_MISSING") {
-         throw error;
-      }
+      const friendlyMsg = getFriendlyErrorMessage(error);
 
-      if (!signal?.aborted) {
-         let errorDetails = error.message || error.toString();
-         // Tradução amigável de erros comuns
-         if (errorDetails.includes('429') || errorDetails.includes('Quota exceeded')) {
-             errorDetails = "O servidor está temporariamente cheio (Limite de tráfego). Por favor, aguarde 1 minuto antes de tentar novamente.";
-         } else if (errorDetails.includes('503')) {
-             errorDetails = "O serviço da Google está instável no momento. Tente novamente em breve.";
-         }
-         
-         onChunk(`\n\n⚠️ **Erro de Conexão:** ${errorDetails}`);
+      if (!hasReceivedContent) {
+          // Se falhou antes de enviar qualquer coisa, lançamos o erro para a UI tratar (ex: remover mensagem vazia)
+          throw new Error(friendlyMsg);
+      } else {
+          // Se falhou no meio do stream, anexamos o erro ao final da mensagem existente
+          onChunk(`\n\n---\n**Erro:** ${friendlyMsg}`);
       }
     }
   },
@@ -184,15 +197,19 @@ export const GeminiService = {
       signal?: AbortSignal
   ): Promise<string> {
     let fullText = "";
-    await this.chatStream(
-        history, 
-        message, 
-        (chunk) => { fullText += chunk; }, 
-        mediaBase64, 
-        mediaType, 
-        signal
-    );
-    return fullText;
+    try {
+        await this.chatStream(
+            history, 
+            message, 
+            (chunk) => { fullText += chunk; }, 
+            mediaBase64, 
+            mediaType, 
+            signal
+        );
+        return fullText;
+    } catch (e: any) {
+        throw e; // Repassa erro tratado
+    }
   },
 
   async negotiateDocumentDetails(history: { role: string; text: string }[], currentMessage: string): Promise<{ 
@@ -218,8 +235,8 @@ export const GeminiService = {
             });
 
             return JSON.parse(response.text || "{}");
-        } catch (error) {
-            return { reply: "Estou a ter dificuldades de conexão devido ao alto tráfego. Pode repetir?", extractedData: {}, isReady: false };
+        } catch (error: any) {
+             throw new Error(getFriendlyErrorMessage(error));
         }
     });
   },
@@ -227,11 +244,15 @@ export const GeminiService = {
   async editDocumentFragment(currentHTML: string, userInstruction: string): Promise<string> {
     return withRetry(async () => {
         const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Edite este HTML seguindo a instrução: "${userInstruction}".\nHTML: ${currentHTML}`
-        });
-        return (response.text || currentHTML).replace(/```html/g, '').replace(/```/g, '');
+        try {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: `Edite este HTML seguindo a instrução: "${userInstruction}".\nHTML: ${currentHTML}`
+            });
+            return (response.text || currentHTML).replace(/```html/g, '').replace(/```/g, '');
+        } catch (error: any) {
+            throw new Error(getFriendlyErrorMessage(error));
+        }
     });
   },
 
@@ -251,22 +272,30 @@ export const GeminiService = {
             Retorne APENAS HTML.
         `;
         
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt
-        });
-        return (response.text || "").replace(/```html/g, '').replace(/```/g, '');
+        try {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt
+            });
+            return (response.text || "").replace(/```html/g, '').replace(/```/g, '');
+        } catch (error: any) {
+            throw new Error(getFriendlyErrorMessage(error));
+        }
     });
   },
 
   async humanizeText(text: string, variant: HumanizerVariant): Promise<string> {
     return withRetry(async () => {
         const ai = getAiClient();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Reescreva como falante nativo de ${variant}: "${text}"`
-        });
-        return response.text || text;
+        try {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: `Reescreva como falante nativo de ${variant}: "${text}"`
+            });
+            return response.text || text;
+        } catch (error: any) {
+             throw new Error(getFriendlyErrorMessage(error));
+        }
     });
   }
 };

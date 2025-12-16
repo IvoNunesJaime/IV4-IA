@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Image as ImageIcon, Code, Zap, Sparkles, Paperclip, X, FileText, Square, Copy, Check, Globe, BrainCircuit, ArrowUp, Plus, Book, Lightbulb, GraduationCap } from 'lucide-react';
+import { Send, Image as ImageIcon, Code, Zap, Sparkles, Paperclip, X, FileText, Square, Copy, Check, Globe, BrainCircuit, ArrowUp, Plus, Book, Lightbulb, GraduationCap, AlertTriangle } from 'lucide-react';
 import { GeminiService } from '../services/geminiService';
 import { Message, User, ChatSession } from '../types';
 import { Logo } from './Logo';
@@ -140,8 +140,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     let accumulatedText = "";
 
     try {
-      // FIX: Use 'messages' (previous state) instead of 'newMessages' to avoid 
-      // duplicating the current user message in the history context.
       const history = messages
         .filter(m => !m.image) 
         .map(m => ({
@@ -149,7 +147,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
             parts: [{ text: m.text }]
         }));
 
-      // Pass configuration to service
       const config = {
           isThinking: isThinkingEnabled,
           isSearch: isSearchEnabled
@@ -159,20 +156,16 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
           history, 
           userMsg.text, 
           (chunkText) => {
-              // Assim que receber dados, marca como streaming
               setIsStreaming(true);
 
-              // Update usando functional state para garantir consistência e evitar duplicação
               setMessages(prev => {
                   const lastMsg = prev[prev.length - 1];
                   
-                  // Se a última mensagem for a do bot (streaming em andamento), anexa o texto
                   if (lastMsg && lastMsg.id === botMsgId) {
                       return prev.map(m => 
                           m.id === botMsgId ? { ...m, text: m.text + chunkText } : m
                       );
                   } else {
-                      // Se não, é o primeiro chunk, cria a mensagem
                       return [...prev, {
                           id: botMsgId,
                           role: 'model',
@@ -187,10 +180,9 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
           mediaToSend?.data,
           mediaToSend?.type,
           abortControllerRef.current.signal,
-          config // Pass config here
+          config 
       );
 
-      // Atualização final da sessão para persistência
       if (accumulatedText) {
         const finalMessages = [...newMessages, {
             id: botMsgId,
@@ -203,17 +195,12 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
 
     } catch (error: any) {
         if (error.name !== 'AbortError' && error.message !== 'Aborted') {
-            let errorText = "⚠️ Erro ao conectar ao servidor. Verifique sua conexão.";
+            const errorText = error.message || "Ocorreu um erro inesperado.";
             
-            // Tratamento específico para falta de chave API
-            if (error.message === 'API_KEY_MISSING' || error.message?.includes('API key')) {
-                errorText = "⚠️ Erro de Configuração: Chave de API não encontrada ou inválida. Por favor, configure a API KEY nas configurações do projeto.";
-            }
-
             const errorMsg: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'model',
-                text: errorText,
+                text: errorText, // O serviço já retorna mensagens amigáveis
                 timestamp: Date.now(),
             };
             const failedMessages = [...newMessages, errorMsg];
@@ -235,22 +222,27 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
   };
 
   const renderMessageContent = (text: string) => {
-    // Basic Markdown Code Block Parser
     const parts = text.split(/```(\w*)\n([\s\S]*?)```/g);
     
     return parts.map((part, index) => {
         if (index % 3 === 0) {
-            // Texto normal
             if (!part.trim()) return null;
+            // Detecção básica de erro para estilização
+            if (part.startsWith('⚠️') || part.includes('Erro:')) {
+                return (
+                    <div key={index} className="whitespace-pre-wrap leading-relaxed text-red-600 dark:text-red-400 font-medium bg-red-50 dark:bg-red-900/10 p-2 rounded-lg border border-red-100 dark:border-red-800/30">
+                        {part}
+                    </div>
+                );
+            }
             return <div key={index} className="whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200">{part}</div>;
         }
-        if (index % 3 === 1) return null; // Linguagem capturada pelo regex
+        if (index % 3 === 1) return null;
         const language = parts[index - 1];
         return <CodeBlock key={index} code={part} language={language} />;
     });
   };
 
-  // Chips matching the provided image EXACTLY
   const quickActions = [
     { icon: Book, text: "Resuma a Revolução Industrial" },
     { icon: Zap, text: "Explique Física Quântica simples" },
@@ -258,23 +250,18 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     { icon: Sparkles, text: "Ideias para um projeto de História" },
   ];
 
-  // --- Empty State View (Centered Layout) ---
   if (messages.length === 0) {
     return (
         <div className="flex flex-col h-full bg-gray-50 dark:bg-[#030712] text-gray-900 dark:text-white overflow-hidden relative transition-colors duration-300">
             <div className="flex-grow flex flex-col items-center justify-center px-4 w-full max-w-2xl mx-auto z-10 pb-20">
-                
-                {/* Greeting Icon - Updated to Logo */}
                 <div className="mb-8 hover:scale-105 transition-transform duration-300">
                     <Logo size={72} />
                 </div>
 
-                {/* Greeting Text */}
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center tracking-tight">
                     Como posso ajudar?
                 </h1>
 
-                {/* Input Area (Centered) */}
                 <InputArea 
                     input={input} 
                     setInput={setInput} 
@@ -295,7 +282,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
                     isCentered={true}
                 />
 
-                {/* Action Chips (Below Input) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
                     {quickActions.map((action, i) => (
                         <button 
@@ -315,15 +301,12 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     );
   }
 
-  // --- Active Chat View ---
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#030712] text-gray-900 dark:text-white transition-colors duration-300">
       <div className="flex-grow overflow-y-auto px-4 md:px-0 scroll-smooth pb-36">
         <div className="max-w-3xl mx-auto py-6 space-y-8">
           {messages.map((msg) => (
             <div key={msg.id} className="flex flex-col gap-2">
-                
-                {/* User Message */}
                 {msg.role === 'user' && (
                     <div className="flex justify-end">
                         <div className="bg-white dark:bg-[#1f2937] px-5 py-3 rounded-2xl rounded-tr-none text-gray-800 dark:text-gray-100 max-w-[85%] leading-relaxed border border-gray-200 dark:border-white/5 shadow-sm">
@@ -335,7 +318,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
                     </div>
                 )}
 
-                {/* AI Message */}
                 {msg.role === 'model' && (
                     <div className="flex gap-4">
                         <div className="shrink-0 mt-1">
@@ -344,12 +326,10 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
                         <div className="flex-grow min-w-0 pt-1">
                             <div className="text-gray-800 dark:text-gray-200 text-base leading-relaxed">
                                 {renderMessageContent(msg.text)}
-                                {/* Cursor blink effect if streaming this message */}
                                 {isStreaming && msg.id === messages[messages.length-1].id && (
                                     <span className="inline-block w-2 h-4 align-middle bg-indigo-500 ml-1 animate-pulse rounded-sm"></span>
                                 )}
                             </div>
-                            {/* Actions toolbar - only show if not streaming or if text is long enough */}
                             {(!isStreaming || msg.text.length > 50) && (
                                 <div className="flex items-center gap-4 mt-2 fade-in">
                                     <button onClick={() => onHumanizeRequest(msg.text)} className="p-1 text-gray-400 hover:text-[#4f46e5] dark:text-gray-500 dark:hover:text-[#a78bfa] transition-colors" title="Humanizar">
@@ -366,7 +346,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
             </div>
           ))}
           
-          {/* Loading Indicator (Only show if NOT streaming text yet and IS loading) */}
           {isLoading && !isStreaming && (
             <div className="flex gap-4">
                <div className="shrink-0 mt-1 animate-pulse">
@@ -392,7 +371,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
         </div>
       </div>
 
-      {/* Input Area (Fixed at bottom for active chat) */}
       <InputArea 
             input={input} 
             setInput={setInput} 
@@ -426,7 +404,6 @@ const InputArea = ({
             <div className={`max-w-3xl w-full ${!isCentered ? 'md:ml-[280px] md:mr-0 transition-all duration-300' : ''}`}> 
                 <div className={`bg-white dark:bg-[#1f2937] rounded-2xl p-2 border border-gray-200 dark:border-white/5 shadow-xl dark:shadow-2xl relative flex flex-col transition-all focus-within:border-indigo-500/50 dark:focus-within:border-white/10 ${isCentered ? 'min-h-[60px]' : ''}`}>
                     
-                    {/* Media Preview */}
                     {selectedMedia && (
                         <div className="mx-2 mt-2 mb-1 p-2 bg-gray-100 dark:bg-[#374151] rounded-lg inline-flex items-center gap-2 self-start border border-gray-200 dark:border-transparent">
                             {selectedMedia.type.includes('image') ? 
@@ -437,7 +414,6 @@ const InputArea = ({
                         </div>
                     )}
 
-                    {/* Toggles Area */}
                     <div className="flex items-center gap-2 px-2 pb-2">
                         <button 
                             onClick={() => setIsThinkingEnabled(!isThinkingEnabled)}
@@ -467,7 +443,6 @@ const InputArea = ({
                             style={{ height: 'auto', overflowY: 'hidden' }}
                         />
                         
-                         {/* Attachment Button */}
                          <input 
                                 type="file" 
                                 ref={fileInputRef} 
@@ -478,7 +453,6 @@ const InputArea = ({
                              <Paperclip size={20} />
                         </button>
 
-                         {/* Send Button */}
                         {isLoading ? (
                             <button onClick={handleStop} className="p-2 mr-2 rounded-lg bg-gray-200 dark:bg-white text-black hover:opacity-90">
                                 <Square size={16} fill="currentColor" />
@@ -493,7 +467,6 @@ const InputArea = ({
                             </button>
                         )}
                     </div>
-                    
                 </div>
             </div>
         </div>

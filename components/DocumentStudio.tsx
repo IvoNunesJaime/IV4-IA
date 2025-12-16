@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, X, ArrowLeft, Download, FileCheck, CheckCircle, Loader2, Edit3, Save, Layers, Book, Briefcase, FileText, Mail, FileType, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Indent, Outdent, BoxSelect, FolderOpen, Image as ImageIcon, Frame, PlusCircle, Check } from 'lucide-react';
+import { Sparkles, Send, X, ArrowLeft, Download, FileCheck, CheckCircle, Loader2, Edit3, Save, Layers, Book, Briefcase, FileText, Mail, FileType, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Indent, Outdent, BoxSelect, FolderOpen, Image as ImageIcon, Frame, PlusCircle, Check, AlertTriangle } from 'lucide-react';
 import { GeminiService } from '../services/geminiService';
 import { Humanizer } from './Humanizer';
 import { SavedDocument } from '../types';
@@ -10,7 +10,7 @@ interface DocumentStudioProps {
 
 interface StudioMessage {
     id: string;
-    role: 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'system';
     text: string;
 }
 
@@ -27,6 +27,9 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
   const [messages, setMessages] = useState<StudioMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Error UI State
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Metadata State
   const [metadata, setMetadata] = useState<any>({});
@@ -84,7 +87,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
       const updatedDocs = [newDoc, ...savedDocuments];
       setSavedDocuments(updatedDocs);
       localStorage.setItem('iv4_saved_docs', JSON.stringify(updatedDocs));
-      alert("Documento salvo com sucesso no Estúdio!");
+      // Toast feedback could be added here
   };
 
   const loadDocument = (doc: SavedDocument) => {
@@ -110,6 +113,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
     if (!input.trim() || isTyping) return;
     if (!checkUsageLimit()) return;
 
+    setErrorMsg(null); // Clear previous errors
     const userText = input;
     const userMsg: StudioMessage = { id: Date.now().toString(), role: 'user', text: userText };
     
@@ -118,7 +122,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
     setIsTyping(true);
 
     try {
-        const history = messages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', text: m.text }));
+        const history = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role === 'user' ? 'user' : 'model', text: m.text }));
         const result = await GeminiService.negotiateDocumentDetails(history, userText);
         
         setMetadata((prev: any) => ({ ...prev, ...result.extractedData }));
@@ -131,8 +135,14 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
         };
         setMessages(prev => [...prev, aiMsg]);
 
-    } catch (error) {
-        setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', text: "Ocorreu um erro ao processar. Tente novamente." }]);
+    } catch (error: any) {
+        // Exibir erro amigável no chat como mensagem de sistema
+        const sysMsg: StudioMessage = {
+            id: Date.now().toString(),
+            role: 'system',
+            text: `⚠️ ${error.message || "Ocorreu um erro ao processar. Tente novamente."}`
+        };
+        setMessages(prev => [...prev, sysMsg]);
     } finally {
         setIsTyping(false);
     }
@@ -140,12 +150,13 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
 
   const handleGenerateDocument = async () => {
     setIsGeneratingDoc(true);
+    setErrorMsg(null);
     try {
         const content = await GeminiService.generateDocument(metadata, true);
         setDocumentContent(content);
         setMode('preview');
-    } catch (e) {
-        alert("Erro ao gerar. Tente novamente.");
+    } catch (e: any) {
+        setErrorMsg(e.message || "Não foi possível gerar o documento. Tente novamente.");
     } finally {
         setIsGeneratingDoc(false);
     }
@@ -247,6 +258,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
   const handleAIEdit = async () => {
       if (!aiEditPrompt.trim()) return;
       setIsAIEditing(true);
+      setErrorMsg(null);
       try {
           const currentHTML = editorRef.current?.innerHTML || documentContent;
           const newContent = await GeminiService.editDocumentFragment(currentHTML, aiEditPrompt);
@@ -254,8 +266,11 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
           if (editorRef.current) editorRef.current.innerHTML = newContent;
           setShowAIEditModal(false);
           setAiEditPrompt('');
-      } catch (error) {
-          alert("Erro ao editar com IA.");
+      } catch (error: any) {
+          setErrorMsg(error.message);
+          // Close modal to show error on main screen or show inside modal?
+          // Let's show alert for now inside the modal logic
+          alert(`Erro: ${error.message}`); 
       } finally {
           setIsAIEditing(false);
       }
@@ -275,7 +290,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
 
   const insertTextBox = () => {
       const activePage = document.querySelector('.page:hover') || document.querySelector('.page');
-      if (!activePage) { alert("Clique na página onde deseja inserir."); return; }
+      if (!activePage) { return; } // Removed Alert
 
       const textBoxHTML = `
         <div class="draggable-box" style="position: absolute; left: 100px; top: 100px; min-width: 150px; z-index: 10;">
@@ -309,7 +324,6 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
   if (mode === 'preview') {
       return (
         <div className="fixed inset-0 z-50 bg-[#f0f0f0] flex flex-col animate-fade-in overflow-hidden">
-            {/* GLOBAL CSS FOR EDITOR UI ONLY (Print is handled by Iframe) */}
             <style>{`
                 /* Editor UI */
                 .iv4-word-ribbon {
@@ -578,6 +592,8 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
                     <div className={`max-w-[85%] p-4 rounded-2xl ${
                         msg.role === 'user' 
                         ? 'bg-indigo-600 text-white rounded-tr-none' 
+                        : msg.role === 'system'
+                        ? 'bg-red-50 dark:bg-red-900/10 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800'
                         : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 rounded-tl-none shadow-sm'
                     }`}>
                         <p className="whitespace-pre-wrap">{msg.text}</p>
@@ -586,6 +602,15 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
             ))}
             <div ref={messagesEndRef} />
         </div>
+
+        {/* Error Banner for Wizard */}
+        {errorMsg && (
+             <div className="bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 p-3 rounded-lg mb-2 flex items-center gap-2 text-sm border border-red-200 dark:border-red-800">
+                <AlertTriangle size={16} />
+                {errorMsg}
+                <button onClick={() => setErrorMsg(null)} className="ml-auto"><X size={14}/></button>
+             </div>
+        )}
 
         <div className="mt-4 bg-white dark:bg-gray-800 p-2 rounded-xl border border-gray-200 dark:border-gray-700 flex flex-col gap-2 shadow-sm">
             {isReadyToGenerate && (
