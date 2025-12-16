@@ -21,7 +21,7 @@ const getFriendlyErrorMessage = (error: any): string => {
     
     if (msg.includes("API_KEY_MISSING")) return "Chave de API não configurada. Contacte o administrador.";
     if (msg.includes("429") || msg.includes("Quota exceeded") || msg.includes("RESOURCE_EXHAUSTED")) {
-        return "⚠️ O sistema está com muito tráfego (Limite de Quota). Por favor, aguarde 1 minuto e tente novamente.";
+        return "⚠️ Tráfego elevado (Limite da Google atingido). O sistema está a tentar reconectar, mas se persistir, aguarde 1 minuto.";
     }
     if (msg.includes("503") || msg.includes("Overloaded")) {
         return "⚠️ Os servidores da Google estão sobrecarregados. Tente novamente em breve.";
@@ -43,12 +43,14 @@ const getFriendlyErrorMessage = (error: any): string => {
 async function withRetry<T>(
     operation: () => Promise<T>, 
     onStatusUpdate?: (msg: string) => void,
-    retries = 3, // Reduzido para evitar esperas longas na UI
+    baseRetries = 3, 
     initialDelay = 2000
 ): Promise<T> {
     let lastError: any;
+    // Permitir mais tentativas se for erro de quota (429)
+    let maxRetries = baseRetries;
     
-    for (let i = 0; i < retries; i++) {
+    for (let i = 0; i < maxRetries; i++) {
         try {
             return await operation();
         } catch (error: any) {
@@ -64,18 +66,25 @@ async function withRetry<T>(
             const isServerOverload = errorMsg.includes('503');
             const isNetworkError = errorMsg.includes('fetch failed');
 
+            // Se for Rate Limit, aumentamos as tentativas dinamicamente na primeira falha
+            if (isRateLimit && maxRetries === baseRetries) {
+                maxRetries = 6; // Aumenta para 6 tentativas (aprox 60s total de espera) para tentar vencer o reset de 1 minuto
+            }
+
             if (isRateLimit || isServerOverload || isNetworkError) {
-                if (i === retries - 1) break;
+                if (i === maxRetries - 1) break;
 
                 let waitTime = initialDelay * Math.pow(2, i);
+                // Cap no tempo de espera máximo (ex: 10s)
+                if (waitTime > 10000) waitTime = 10000;
                 
                 // Feedback visual se fornecido
                 if (onStatusUpdate) {
                     const friendly = getFriendlyErrorMessage(error);
-                    onStatusUpdate(`\n\n_${friendly} Tentando novamente (${i+1}/${retries})..._`);
+                    onStatusUpdate(`\n\n_${friendly} Tentando novamente em ${waitTime/1000}s (${i+1}/${maxRetries})..._`);
                 }
 
-                console.log(`[IV4 IA] Retry ${i+1}/${retries} após erro: ${errorMsg}`);
+                console.log(`[IV4 IA] Retry ${i+1}/${maxRetries} após erro: ${errorMsg}`);
                 await wait(waitTime);
                 continue;
             }
@@ -120,8 +129,9 @@ export const GeminiService = {
         CRIADOR: Ivo Nunes Jaime (Lichinga, Niassa).
 
         == DIRETRIZES ==
-        - Seja útil, académico e educado.
         - Idioma: Português (Moçambique).
+        - Seja útil, académico e educado.
+        - COMPORTAMENTO: Responda a saudações (como "Olá", "Oi", "Bom dia") de forma natural e breve (ex: "Olá! Como posso ajudar?"). NÃO recite sua biografia ou detalhes do criador na saudação inicial, a menos que perguntado explicitamente "quem é você" ou "quem te criou".
         - ${config?.isSearch ? 'Use Google Search se necessário.' : 'Use seu conhecimento interno.'}
       `;
 
