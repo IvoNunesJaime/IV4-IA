@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 import { HumanizerVariant } from "../types";
 
@@ -44,15 +43,13 @@ export const GeminiService = {
     try {
       const ai = getAiClient();
       
-      // Update models to current recommendations: gemini-2.5-flash-image for image tasks, gemini-3-flash-preview for general text tasks
-      const isImageTask = mediaBase64 && !config?.isSearch;
-      const modelName = isImageTask ? 'gemini-2.5-flash-image' : 'gemini-3-flash-preview';
+      // Always use gemini-3-flash-preview for chat and multimodal analysis
+      const modelName = 'gemini-3-flash-preview';
 
       const systemInstruction = `Você é o IV4 IA, criado por Ivo Nunes Jaime em Lichinga, Moçambique. Responda de forma útil e breve.`;
 
       const modelConfig: any = { systemInstruction };
       if (config?.isSearch) modelConfig.tools = [{ googleSearch: {} }];
-      // Thinking config is supported in Gemini 3 series
       if (config?.isThinking) modelConfig.thinkingConfig = { thinkingBudget: 16384 };
 
       const chat = ai.chats.create({ model: modelName, history, config: modelConfig });
@@ -62,20 +59,12 @@ export const GeminiService = {
             ? [{ text: message }, { inlineData: { data: mediaBase64.split(',')[1] || mediaBase64, mimeType: mediaType || 'image/jpeg' } }]
             : message;
 
-          // chat.sendMessageStream takes an object with a 'message' property
           const responseStream = await chat.sendMessageStream({ message: content });
 
           for await (const chunk of responseStream) {
             if (signal?.aborted) break;
             
-            // For image editing tasks, iterate through candidates to find image output
-            const imagePart = chunk.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-            if (imagePart) {
-                onChunk(`IMAGE_DATA:data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`);
-                hasReceivedContent = true;
-            }
-
-            // Extract text using the .text property (not a method call)
+            // Extract text using the .text property
             const text = chunk.text;
             if (text) {
                 hasReceivedContent = true;
@@ -88,23 +77,6 @@ export const GeminiService = {
     }
   },
 
-  async generateImage(prompt: string, aspectRatio: string = "1:1"): Promise<string> {
-    return withRetry(async () => {
-      const ai = getAiClient();
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: { parts: [{ text: prompt }] },
-        config: { imageConfig: { aspectRatio } }
-      });
-
-      const imagePart = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-      if (imagePart) {
-        return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
-      }
-      throw new Error("Nenhuma imagem foi gerada.");
-    });
-  },
-
   async humanizeText(text: string, variant: HumanizerVariant): Promise<string> {
     return withRetry(async () => {
         const ai = getAiClient();
@@ -112,7 +84,6 @@ export const GeminiService = {
             model: 'gemini-3-flash-preview',
             contents: `Reescreva como nativo de ${variant}: "${text}"`
         });
-        // Access text via the .text property
         return response.text || text;
     });
   },
@@ -124,7 +95,6 @@ export const GeminiService = {
           contents: `Analise para gerar documento: ${currentMessage}. Histórico: ${JSON.stringify(history)}`,
           config: { responseMimeType: "application/json" }
       });
-      // Access text via the .text property
       return JSON.parse(response.text || "{}");
   },
 
@@ -134,7 +104,6 @@ export const GeminiService = {
           model: 'gemini-3-flash-preview',
           contents: `Gere um HTML académico para: ${JSON.stringify(data)}`
       });
-      // Access text via the .text property
       return response.text || "";
   },
 
@@ -144,7 +113,6 @@ export const GeminiService = {
           model: 'gemini-3-flash-preview',
           contents: `Edite este HTML: ${html}. Instrução: ${instruction}`
       });
-      // Access text via the .text property
       return response.text || html;
   }
 };

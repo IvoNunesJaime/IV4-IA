@@ -18,8 +18,12 @@ const App: React.FC = () => {
   const [usageCount, setUsageCount] = useState(0);
   const [humanizerInitialText, setHumanizerInitialText] = useState<string>('');
   
-  // Dark Mode State
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  // Dark Mode State - Default to false (Light Mode)
+  // Initialize from localStorage if available
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const savedTheme = localStorage.getItem('iv4_theme');
+    return savedTheme === 'dark'; // If no saved theme, returns false (Light)
+  });
 
   // Session Management
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -29,34 +33,31 @@ const App: React.FC = () => {
   const currentSessionIdRef = useRef<string | null>(currentSessionId);
 
   // --- PERFORMANCE OPTIMIZATION: Session Cache ---
-  // We use a Ref to store the full list of sessions in memory.
-  // This avoids reading and JSON.parsing from localStorage on every single update.
   const allSessionsRef = useRef<ChatSession[]>([]);
   const isStorageInitialized = useRef(false);
 
   const persistSessions = (updatedSessions: ChatSession[]) => {
       try {
-          // Write to Storage
           localStorage.setItem('iv4_chat_sessions', JSON.stringify(updatedSessions));
-          // Update Memory Cache
           allSessionsRef.current = updatedSessions;
       } catch (e) {
           console.error("Failed to save sessions to localStorage", e);
       }
   };
 
-  // Handle Dark Mode Class
+  // Handle Dark Mode Class and Persistence
   useEffect(() => {
     if (isDarkMode) {
         document.documentElement.classList.add('dark');
+        localStorage.setItem('iv4_theme', 'dark');
     } else {
         document.documentElement.classList.remove('dark');
+        localStorage.setItem('iv4_theme', 'light');
     }
   }, [isDarkMode]);
 
-  // Initialization & Data Loading (Runs once on mount)
+  // Initialization & Data Loading
   useEffect(() => {
-    // 1. Initialize Session Cache from Storage
     try {
         const saved = localStorage.getItem('iv4_chat_sessions');
         if (saved) {
@@ -68,7 +69,6 @@ const App: React.FC = () => {
     }
     isStorageInitialized.current = true;
 
-    // 2. Restore User from LocalStorage
     const savedUser = localStorage.getItem('iv4_user');
     let loadedUser = null;
     if (savedUser) {
@@ -80,28 +80,19 @@ const App: React.FC = () => {
         }
     }
     
-    // Check usage from local storage
     const savedUsage = localStorage.getItem('iv4_usage_count');
     if (savedUsage) setUsageCount(parseInt(savedUsage));
 
-    // Carregar sessões iniciais filtradas pelo utilizador carregado
     loadFilteredSessions(loadedUser);
-    
-    // Iniciar sempre com estado de "Nova Conversa" visualmente
     setCurrentSessionId(null);
   }, []); 
 
-  // Função para carregar e filtrar sessões baseado no utilizador atual (Lê do Cache)
   const loadFilteredSessions = (currentUser: User | null) => {
-      // Ensure we use the cache
       const allSessions = allSessionsRef.current;
-      
       const filtered = allSessions.filter(s => {
           if (currentUser) {
-              // Se logado, mostra apenas as minhas sessões
               return s.userId === currentUser.id;
           } else {
-              // Se visitante, mostra apenas sessões sem userId (criadas como visitante)
               return !s.userId;
           }
       }).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
@@ -109,12 +100,9 @@ const App: React.FC = () => {
       setSessions(filtered);
   };
 
-  // Recarregar sessões sempre que o utilizador muda
   useEffect(() => {
       if (isStorageInitialized.current) {
           loadFilteredSessions(user);
-          
-          // Se a sessão atual não pertencer ao novo utilizador, resetar
           if (currentSessionId) {
               const allSessions = allSessionsRef.current;
               const session = allSessions.find(s => s.id === currentSessionId);
@@ -128,12 +116,10 @@ const App: React.FC = () => {
       }
   }, [user?.id]);
 
-  // Sync Ref with State
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId;
   }, [currentSessionId]);
 
-  // Handle window resize for responsive sidebar
   useEffect(() => {
       const handleResize = () => {
           if (window.innerWidth > 768) {
@@ -154,13 +140,10 @@ const App: React.FC = () => {
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
-      
       const allSessions = allSessionsRef.current;
       const updatedAll = allSessions.filter(s => s.id !== id);
-      
       persistSessions(updatedAll);
       loadFilteredSessions(user);
-      
       if (currentSessionId === id) {
           setCurrentSessionId(null);
       }
@@ -168,16 +151,12 @@ const App: React.FC = () => {
 
   const handleSessionUpdate = (messages: Message[]) => {
       const activeId = currentSessionIdRef.current;
-      // Read from Memory Cache instead of LocalStorage
       const allSessions = allSessionsRef.current;
       let updatedAllSessions = [...allSessions];
 
       if (activeId) {
-          // Update existing session
           const sessionIndex = updatedAllSessions.findIndex(s => s.id === activeId);
-          
           if (sessionIndex !== -1) {
-              // Generate Title Logic
               let newTitle = updatedAllSessions[sessionIndex].title;
               if ((newTitle === 'Nova Conversa' || !newTitle) && messages.length > 0) {
                   const firstUserMsg = messages.find(m => m.role === 'user');
@@ -185,7 +164,6 @@ const App: React.FC = () => {
                       newTitle = firstUserMsg.text.slice(0, 30) + (firstUserMsg.text.length > 30 ? '...' : '');
                   }
               }
-
               updatedAllSessions[sessionIndex] = {
                   ...updatedAllSessions[sessionIndex],
                   messages,
@@ -195,10 +173,8 @@ const App: React.FC = () => {
               };
           }
       } else {
-          // Create NEW session
           const newId = Date.now().toString();
           currentSessionIdRef.current = newId; 
-          
           let newTitle = 'Nova Conversa';
           if (messages.length > 0) {
                const firstUserMsg = messages.find(m => m.role === 'user');
@@ -206,7 +182,6 @@ const App: React.FC = () => {
                     newTitle = firstUserMsg.text.slice(0, 30) + (firstUserMsg.text.length > 30 ? '...' : '');
                }
           }
-
           const newSession: ChatSession = {
               id: newId,
               title: newTitle,
@@ -215,20 +190,14 @@ const App: React.FC = () => {
               lastMessageAt: Date.now(),
               userId: user?.id
           };
-
           updatedAllSessions = [newSession, ...updatedAllSessions];
           setCurrentSessionId(newId);
       }
-
-      // Save to Storage & Cache efficiently
       persistSessions(updatedAllSessions);
-      
-      // Update local view state
       const filtered = updatedAllSessions.filter(s => {
           if (user) return s.userId === user.id;
           return !s.userId;
       }).sort((a, b) => b.lastMessageAt - a.lastMessageAt);
-      
       setSessions(filtered);
   };
 
@@ -240,17 +209,14 @@ const App: React.FC = () => {
   };
 
   const handleLoginSuccess = (loggedInUser: User) => {
-    // Migrate active visitor session to new user if exists
     if (currentSessionId) {
         const allSessions = allSessionsRef.current;
         const sessionIndex = allSessions.findIndex(s => s.id === currentSessionId);
-        
         if (sessionIndex !== -1 && !allSessions[sessionIndex].userId) {
             allSessions[sessionIndex].userId = loggedInUser.id;
             persistSessions([...allSessions]);
         }
     }
-
     setUser(loggedInUser);
     localStorage.setItem('iv4_user', JSON.stringify(loggedInUser));
     setIsAuthModalOpen(false);
@@ -259,13 +225,11 @@ const App: React.FC = () => {
 
   const checkUsageLimit = (): boolean => {
     if (user) return true;
-
     if (usageCount >= FREE_USAGE_LIMIT) {
       setAuthReason('limit_reached');
       setIsAuthModalOpen(true);
       return false;
     }
-
     const newCount = usageCount + 1;
     setUsageCount(newCount);
     localStorage.setItem('iv4_usage_count', newCount.toString());
@@ -277,7 +241,6 @@ const App: React.FC = () => {
     setCurrentView(AppView.HUMANIZER);
   };
 
-  // Buscar sessão ativa da lista filtrada
   const getCurrentSession = () => sessions.find(s => s.id === currentSessionId);
 
   return (
@@ -290,8 +253,6 @@ const App: React.FC = () => {
         triggerReason={authReason}
       />
 
-      {/* Sidebar - Old Interface Layout */}
-      {/* Mobile Overlay Background */}
       {isSidebarOpen && window.innerWidth < 768 && (
           <div 
             className="fixed inset-0 bg-black/50 z-20"
@@ -303,8 +264,6 @@ const App: React.FC = () => {
         className={`fixed md:relative top-0 left-0 h-full bg-white dark:bg-[#020617] border-r border-gray-200 dark:border-white/5 transition-all duration-300 ease-in-out z-30 w-[280px] flex flex-col ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:w-0 md:translate-x-0 md:hidden'}`}
       >
         <div className="p-4 flex flex-col h-full relative">
-            
-            {/* Mobile Close Button */}
             <button 
                 onClick={() => setIsSidebarOpen(false)}
                 className="md:hidden absolute top-4 right-4 text-gray-400"
@@ -312,7 +271,6 @@ const App: React.FC = () => {
                 <X size={20} />
             </button>
 
-            {/* Logo */}
             <div className="flex items-center gap-3 mb-6 px-2">
                 <div className="hover:scale-105 transition-transform">
                     <Logo size={42} />
@@ -320,7 +278,6 @@ const App: React.FC = () => {
                 <span className="font-bold text-lg tracking-tight text-gray-900 dark:text-white">IV4 IA</span>
             </div>
 
-            {/* New Chat Button */}
             <button 
                 onClick={startNewChat}
                 className="w-full bg-gray-100 dark:bg-[#1f2937] hover:bg-gray-200 dark:hover:bg-[#374151] text-gray-800 dark:text-white py-3 px-4 rounded-xl flex items-center gap-3 font-medium transition-colors mb-8 border border-gray-200 dark:border-white/5 shadow-sm group"
@@ -329,14 +286,12 @@ const App: React.FC = () => {
                 Nova Conversa
             </button>
 
-            {/* Tools Section */}
             <div className="mb-8 flex-shrink-0">
                 <h3 className="text-[11px] font-bold text-gray-500 mb-2 px-3 uppercase tracking-wider">FERRAMENTAS</h3>
                 <nav className="space-y-1">
                     <button 
                         onClick={() => { 
                             setCurrentView(AppView.CHAT); 
-                            // When clicking Chat, ensure we clear the session to show empty state (ChatGPT style)
                             setCurrentSessionId(null);
                             if(window.innerWidth < 768) setIsSidebarOpen(false); 
                         }} 
@@ -374,7 +329,6 @@ const App: React.FC = () => {
                 </nav>
             </div>
 
-            {/* History Section */}
             <div className="flex-grow overflow-y-auto custom-scrollbar pr-1 mb-4">
                  <h3 className="text-[11px] font-bold text-gray-500 mb-2 px-3 uppercase tracking-wider">HISTÓRICO</h3>
                  <div className="space-y-0.5">
@@ -397,9 +351,7 @@ const App: React.FC = () => {
                  </div>
             </div>
 
-            {/* Footer Actions */}
             <div className="flex-shrink-0 space-y-2 mt-auto">
-                 {/* Light Mode Toggle */}
                  <button 
                     onClick={() => setIsDarkMode(!isDarkMode)}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
@@ -435,10 +387,7 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-grow flex flex-col h-full relative bg-gray-50 dark:bg-[#030712] w-full transition-colors duration-300">
-        
-        {/* Mobile Header / Sidebar Toggle */}
         {!isSidebarOpen && (
              <div className="absolute top-4 left-4 z-20">
                 <button 
@@ -489,8 +438,6 @@ const SessionItem: React.FC<{ session: ChatSession, isActive: boolean, onClick: 
         }`}
     >
         <span className="truncate pr-6 flex-grow">{session.title}</span>
-        
-        {/* Options (Delete) */}
         <div className={`absolute right-2 top-1/2 -translate-y-1/2 ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity bg-gray-200 dark:bg-[#1f2937] pl-2`}>
              <button onClick={onDelete} className="p-1 hover:text-red-500 text-gray-500 transition-colors">
                 <Trash2 size={14} />

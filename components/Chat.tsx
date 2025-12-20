@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Image as ImageIcon, Code, Zap, Sparkles, Paperclip, X, FileText, Square, Copy, Check, Globe, BrainCircuit, ArrowUp, Plus, Book, Lightbulb, GraduationCap, AlertTriangle, Download, Wand2, HeartPulse, Scale, MapPin, PenTool } from 'lucide-react';
+import { Send, Code, Zap, Sparkles, Paperclip, X, Square, Copy, Check, Globe, BrainCircuit, Download, MapPin, PenTool, Lightbulb } from 'lucide-react';
 import { GeminiService } from '../services/geminiService';
 import { Message, User, ChatSession } from '../types';
 import { Logo } from './Logo';
@@ -46,8 +45,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
   // Toggles
   const [isThinkingEnabled, setIsThinkingEnabled] = useState(false);
   const [isSearchEnabled, setIsSearchEnabled] = useState(false);
-  const [isImageMode, setIsImageMode] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState("1:1");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,34 +97,10 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     setIsLoading(true);
     setIsStreaming(false);
 
-    // GERAÇÃO DE IMAGEM PURA
-    if (isImageMode && !mediaToSend) {
-        try {
-            const imageUrl = await GeminiService.generateImage(textToSend, aspectRatio);
-            const botMsg: Message = {
-                id: (Date.now() + 1).toString(),
-                role: 'model',
-                text: "Aqui está a imagem que gerei para si:",
-                image: imageUrl,
-                timestamp: Date.now()
-            };
-            const finalMsgs = [...newMessages, botMsg];
-            setMessages(finalMsgs);
-            onUpdateSession(finalMsgs);
-            setIsImageMode(false);
-        } catch (error: any) {
-            setMessages([...newMessages, { id: Date.now().toString(), role: 'model', text: error.message, timestamp: Date.now() }]);
-        } finally {
-            setIsLoading(false);
-        }
-        return;
-    }
-
-    // CHAT OU EDIÇÃO DE IMAGEM
+    // CHAT E ANÁLISE MULTIMODAL
     abortControllerRef.current = new AbortController();
     const botMsgId = (Date.now() + 1).toString();
     let accumulatedText = "";
-    let accumulatedImage = "";
 
     try {
       const history = messages.filter(m => !m.image).map(m => ({ role: m.role, parts: [{ text: m.text }] }));
@@ -137,20 +110,15 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
           userMsg.text, 
           (chunk) => {
               setIsStreaming(true);
-              if (chunk.startsWith("IMAGE_DATA:")) {
-                  accumulatedImage = chunk.replace("IMAGE_DATA:", "");
-                  setMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, image: accumulatedImage } : m));
-              } else {
-                  setMessages(prev => {
-                      const lastMsg = prev[prev.length - 1];
-                      if (lastMsg && lastMsg.id === botMsgId) {
-                          return prev.map(m => m.id === botMsgId ? { ...m, text: m.text + chunk } : m);
-                      } else {
-                          return [...prev, { id: botMsgId, role: 'model', text: chunk, timestamp: Date.now() }];
-                      }
-                  });
-                  accumulatedText += chunk;
-              }
+              setMessages(prev => {
+                  const lastMsg = prev[prev.length - 1];
+                  if (lastMsg && lastMsg.id === botMsgId) {
+                      return prev.map(m => m.id === botMsgId ? { ...m, text: m.text + chunk } : m);
+                  } else {
+                      return [...prev, { id: botMsgId, role: 'model', text: chunk, timestamp: Date.now() }];
+                  }
+              });
+              accumulatedText += chunk;
           },
           mediaToSend?.data,
           mediaToSend?.type,
@@ -158,7 +126,7 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
           { isThinking: isThinkingEnabled, isSearch: isSearchEnabled }
       );
 
-      onUpdateSession([...newMessages, { id: botMsgId, role: 'model', text: accumulatedText, image: accumulatedImage || undefined, timestamp: Date.now() }]);
+      onUpdateSession([...newMessages, { id: botMsgId, role: 'model', text: accumulatedText, timestamp: Date.now() }]);
     } catch (error: any) {
         setMessages([...newMessages, { id: Date.now().toString(), role: 'model', text: error.message, timestamp: Date.now() }]);
     } finally {
@@ -218,14 +186,12 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
                         <div className={`px-5 py-3 rounded-2xl shadow-sm border ${msg.role === 'user' ? 'bg-white dark:bg-[#1f2937] border-gray-200 dark:border-white/5 rounded-tr-none' : 'bg-transparent border-transparent'}`}>
                             {msg.image && (
                                 <div className="relative group mb-3">
-                                    <img src={msg.image} className="max-w-full rounded-lg shadow-md border dark:border-white/10" alt="IA Generated" />
+                                    <img src={msg.image} className="max-w-full rounded-lg shadow-md border dark:border-white/10" alt="Uploaded Content" />
                                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                                        <a href={msg.image} download="iv4-image.png" className="p-2 bg-black/50 text-white rounded-full hover:bg-black/70"><Download size={16}/></a>
-                                        <button onClick={() => { setSelectedMedia({data: msg.image!, type: 'image/png', name: 'editar-imagem.png'}); setInput("Edite esta imagem para..."); }} className="p-2 bg-black/50 text-white rounded-full hover:bg-black/70"><Wand2 size={16}/></button>
+                                        <a href={msg.image} download="iv4-attachment.png" className="p-2 bg-black/50 text-white rounded-full hover:bg-black/70"><Download size={16}/></a>
                                     </div>
                                 </div>
                             )}
-                            {/* Fix undefined variable 'text' by using 'msg.text' */}
                             {renderMessageContent(msg.text)}
                         </div>
                     </div>
@@ -242,15 +208,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
             <div className="flex gap-2 mb-1">
                 <ToggleBtn active={isThinkingEnabled} onClick={() => setIsThinkingEnabled(!isThinkingEnabled)} icon={BrainCircuit} label="Raciocínio" />
                 <ToggleBtn active={isSearchEnabled} onClick={() => setIsSearchEnabled(!isSearchEnabled)} icon={Globe} label="Pesquisa" />
-                <ToggleBtn active={isImageMode} onClick={() => setIsImageMode(!isImageMode)} icon={ImageIcon} label="Modo Imagem" color="text-purple-500" />
-                {isImageMode && (
-                    <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="text-xs bg-white dark:bg-gray-800 border dark:border-white/10 rounded px-2 outline-none">
-                        <option value="1:1">1:1 (Quadrado)</option>
-                        <option value="16:9">16:9 (Cinema)</option>
-                        <option value="9:16">9:16 (Telemóvel)</option>
-                        <option value="4:3">4:3 (Clássico)</option>
-                    </select>
-                )}
             </div>
 
             <div className="bg-white dark:bg-[#1f2937] rounded-2xl shadow-xl border border-gray-200 dark:border-white/10 p-2 flex flex-col">
@@ -268,7 +225,7 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
                         value={input} 
                         onChange={(e) => setInput(e.target.value)} 
                         onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-                        placeholder={isImageMode ? "Descreva a imagem que deseja gerar..." : "Pergunte qualquer coisa..."}
+                        placeholder="Pergunte qualquer coisa ou anexe uma imagem para análise..."
                         className="flex-grow bg-transparent p-2 resize-none outline-none max-h-32"
                         rows={1}
                     />
