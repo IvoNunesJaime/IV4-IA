@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Image as ImageIcon, Code, Zap, Sparkles, Paperclip, X, FileText, Square, Copy, Check, Globe, BrainCircuit, ArrowUp, Plus, Book, Lightbulb, GraduationCap, AlertTriangle } from 'lucide-react';
+import { Send, Image as ImageIcon, Code, Zap, Sparkles, Paperclip, X, FileText, Square, Copy, Check, Globe, BrainCircuit, ArrowUp, Plus, Book, Lightbulb, GraduationCap, AlertTriangle, Download, Wand2, HeartPulse, Scale, MapPin, PenTool } from 'lucide-react';
 import { GeminiService } from '../services/geminiService';
 import { Message, User, ChatSession } from '../types';
 import { Logo } from './Logo';
@@ -14,21 +15,16 @@ interface ChatProps {
 
 const CodeBlock: React.FC<{ code: string, language: string }> = ({ code, language }) => {
     const [copied, setCopied] = useState(false);
-
     const handleCopy = () => {
         navigator.clipboard.writeText(code);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
-
     return (
         <div className="my-4 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#0d1117] text-gray-800 dark:text-gray-100 font-mono text-sm shadow-sm">
             <div className="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-[#161b22] border-b border-gray-200 dark:border-gray-700">
                 <span className="text-xs text-gray-500 dark:text-gray-400 font-semibold uppercase">{language || 'code'}</span>
-                <button 
-                    onClick={handleCopy} 
-                    className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-white transition-colors"
-                >
+                <button onClick={handleCopy} className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-white transition-colors">
                     {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                     {copied ? 'Copiado!' : 'Copiar'}
                 </button>
@@ -50,22 +46,21 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
   // Toggles
   const [isThinkingEnabled, setIsThinkingEnabled] = useState(false);
   const [isSearchEnabled, setIsSearchEnabled] = useState(false);
+  const [isImageMode, setIsImageMode] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState("1:1");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-      if (currentSession) {
-          setMessages(currentSession.messages);
-      } else {
-          setMessages([]);
-      }
+      if (currentSession) setMessages(currentSession.messages);
+      else setMessages([]);
   }, [currentSession?.id]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isStreaming]); // Scroll quando mensagens mudam ou quando o streaming atualiza
+  }, [messages, isStreaming]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -76,42 +71,15 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setSelectedMedia({
-            data: reader.result as string,
-            type: file.type,
-            name: file.name
-        });
+        setSelectedMedia({ data: reader.result as string, type: file.type, name: file.name });
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleStop = () => {
-      if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-          abortControllerRef.current = null;
-          setIsLoading(false);
-          setIsStreaming(false);
-          
-          // Adiciona mensagem de cancelado se necessário ou apenas para o estado atual
-          setMessages(prev => {
-              const lastMsg = prev[prev.length - 1];
-              if (lastMsg.role === 'model' && lastMsg.text === '') {
-                  // Se cancelou antes de vir qualquer texto
-                   return [...prev.slice(0, -1), {
-                      ...lastMsg,
-                      text: "⏹️ Resposta cancelada."
-                   }];
-              }
-              return prev;
-          });
-      }
-  };
-
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;
     if ((!textToSend.trim() && !selectedMedia) || isLoading) return;
-
     if (!checkUsageLimit()) return;
 
     const userMsg: Message = {
@@ -122,7 +90,6 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
       timestamp: Date.now(),
     };
 
-    // Atualiza estado local e UI
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     onUpdateSession(newMessages);
@@ -133,342 +100,199 @@ export const Chat: React.FC<ChatProps> = ({ user, checkUsageLimit, onHumanizeReq
     setIsLoading(true);
     setIsStreaming(false);
 
+    // GERAÇÃO DE IMAGEM PURA
+    if (isImageMode && !mediaToSend) {
+        try {
+            const imageUrl = await GeminiService.generateImage(textToSend, aspectRatio);
+            const botMsg: Message = {
+                id: (Date.now() + 1).toString(),
+                role: 'model',
+                text: "Aqui está a imagem que gerei para si:",
+                image: imageUrl,
+                timestamp: Date.now()
+            };
+            const finalMsgs = [...newMessages, botMsg];
+            setMessages(finalMsgs);
+            onUpdateSession(finalMsgs);
+            setIsImageMode(false);
+        } catch (error: any) {
+            setMessages([...newMessages, { id: Date.now().toString(), role: 'model', text: error.message, timestamp: Date.now() }]);
+        } finally {
+            setIsLoading(false);
+        }
+        return;
+    }
+
+    // CHAT OU EDIÇÃO DE IMAGEM
     abortControllerRef.current = new AbortController();
-    
-    // ID para a nova mensagem do bot
     const botMsgId = (Date.now() + 1).toString();
     let accumulatedText = "";
+    let accumulatedImage = "";
 
     try {
-      const history = messages
-        .filter(m => !m.image) 
-        .map(m => ({
-            role: m.role,
-            parts: [{ text: m.text }]
-        }));
-
-      const config = {
-          isThinking: isThinkingEnabled,
-          isSearch: isSearchEnabled
-      };
-
+      const history = messages.filter(m => !m.image).map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+      
       await GeminiService.chatStream(
           history, 
           userMsg.text, 
-          (chunkText) => {
+          (chunk) => {
               setIsStreaming(true);
-
-              setMessages(prev => {
-                  const lastMsg = prev[prev.length - 1];
-                  
-                  if (lastMsg && lastMsg.id === botMsgId) {
-                      return prev.map(m => 
-                          m.id === botMsgId ? { ...m, text: m.text + chunkText } : m
-                      );
-                  } else {
-                      return [...prev, {
-                          id: botMsgId,
-                          role: 'model',
-                          text: chunkText,
-                          timestamp: Date.now()
-                      }];
-                  }
-              });
-              
-              accumulatedText += chunkText;
+              if (chunk.startsWith("IMAGE_DATA:")) {
+                  accumulatedImage = chunk.replace("IMAGE_DATA:", "");
+                  setMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, image: accumulatedImage } : m));
+              } else {
+                  setMessages(prev => {
+                      const lastMsg = prev[prev.length - 1];
+                      if (lastMsg && lastMsg.id === botMsgId) {
+                          return prev.map(m => m.id === botMsgId ? { ...m, text: m.text + chunk } : m);
+                      } else {
+                          return [...prev, { id: botMsgId, role: 'model', text: chunk, timestamp: Date.now() }];
+                      }
+                  });
+                  accumulatedText += chunk;
+              }
           },
           mediaToSend?.data,
           mediaToSend?.type,
           abortControllerRef.current.signal,
-          config 
+          { isThinking: isThinkingEnabled, isSearch: isSearchEnabled }
       );
 
-      if (accumulatedText) {
-        const finalMessages = [...newMessages, {
-            id: botMsgId,
-            role: 'model' as const,
-            text: accumulatedText,
-            timestamp: Date.now()
-        }];
-        onUpdateSession(finalMessages);
-      }
-
+      onUpdateSession([...newMessages, { id: botMsgId, role: 'model', text: accumulatedText, image: accumulatedImage || undefined, timestamp: Date.now() }]);
     } catch (error: any) {
-        if (error.name !== 'AbortError' && error.message !== 'Aborted') {
-            const errorText = error.message || "Ocorreu um erro inesperado.";
-            
-            const errorMsg: Message = {
-                id: (Date.now() + 1).toString(),
-                role: 'model',
-                text: errorText, // O serviço já retorna mensagens amigáveis
-                timestamp: Date.now(),
-            };
-            const failedMessages = [...newMessages, errorMsg];
-            setMessages(failedMessages);
-            onUpdateSession(failedMessages);
-        }
+        setMessages([...newMessages, { id: Date.now().toString(), role: 'model', text: error.message, timestamp: Date.now() }]);
     } finally {
       setIsLoading(false);
       setIsStreaming(false);
-      abortControllerRef.current = null;
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
     }
   };
 
   const renderMessageContent = (text: string) => {
     const parts = text.split(/```(\w*)\n([\s\S]*?)```/g);
-    
     return parts.map((part, index) => {
         if (index % 3 === 0) {
             if (!part.trim()) return null;
-            // Detecção básica de erro para estilização
-            if (part.startsWith('⚠️') || part.includes('Erro:')) {
-                return (
-                    <div key={index} className="whitespace-pre-wrap leading-relaxed text-red-600 dark:text-red-400 font-medium bg-red-50 dark:bg-red-900/10 p-2 rounded-lg border border-red-100 dark:border-red-800/30">
-                        {part}
-                    </div>
-                );
-            }
             return <div key={index} className="whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200">{part}</div>;
         }
         if (index % 3 === 1) return null;
-        const language = parts[index - 1];
-        return <CodeBlock key={index} code={part} language={language} />;
+        return <CodeBlock key={index} code={part} language={parts[index - 1]} />;
     });
   };
-
-  const quickActions = [
-    { icon: Book, text: "Resuma a Revolução Industrial" },
-    { icon: Zap, text: "Explique Física Quântica simples" },
-    { icon: Code, text: "Crie um script Python básico" },
-    { icon: Sparkles, text: "Ideias para um projeto de História" },
-  ];
-
-  if (messages.length === 0) {
-    return (
-        <div className="flex flex-col h-full bg-gray-50 dark:bg-[#030712] text-gray-900 dark:text-white overflow-hidden relative transition-colors duration-300">
-            <div className="flex-grow flex flex-col items-center justify-center px-4 w-full max-w-2xl mx-auto z-10 pb-20">
-                <div className="mb-8 hover:scale-105 transition-transform duration-300">
-                    <Logo size={72} />
-                </div>
-
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8 text-center tracking-tight">
-                    Como posso ajudar?
-                </h1>
-
-                <InputArea 
-                    input={input} 
-                    setInput={setInput} 
-                    handleSend={handleSend} 
-                    handleKeyDown={handleKeyDown} 
-                    isLoading={isLoading} 
-                    handleStop={handleStop}
-                    handleFileSelect={handleFileSelect}
-                    selectedMedia={selectedMedia}
-                    setSelectedMedia={setSelectedMedia}
-                    fileInputRef={fileInputRef}
-                    isThinkingEnabled={isThinkingEnabled}
-                    setIsThinkingEnabled={setIsThinkingEnabled}
-                    isSearchEnabled={isSearchEnabled}
-                    setIsSearchEnabled={setIsSearchEnabled}
-                    className="w-full relative mb-10"
-                    placeholder="Pergunte qualquer coisa..."
-                    isCentered={true}
-                />
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
-                    {quickActions.map((action, i) => (
-                        <button 
-                            key={i}
-                            onClick={() => handleSend(action.text)} 
-                            className="flex items-center gap-3 px-5 py-4 bg-white dark:bg-[#1f2937]/40 hover:bg-gray-100 dark:hover:bg-[#374151] border border-gray-200 dark:border-white/5 hover:border-indigo-300 dark:hover:border-white/10 rounded-2xl transition-all text-left group shadow-sm dark:shadow-none"
-                        >
-                            <div className="text-gray-500 dark:text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white transition-colors">
-                                <action.icon size={20} />
-                            </div>
-                            <span className="text-sm text-gray-700 dark:text-gray-300 font-medium group-hover:text-indigo-700 dark:group-hover:text-white transition-colors">{action.text}</span>
-                        </button>
-                    ))}
-                </div>
-            </div>
-        </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#030712] text-gray-900 dark:text-white transition-colors duration-300">
       <div className="flex-grow overflow-y-auto px-4 md:px-0 scroll-smooth pb-36">
         <div className="max-w-3xl mx-auto py-6 space-y-8">
-          {messages.map((msg) => (
-            <div key={msg.id} className="flex flex-col gap-2">
-                {msg.role === 'user' && (
-                    <div className="flex justify-end">
-                        <div className="bg-white dark:bg-[#1f2937] px-5 py-3 rounded-2xl rounded-tr-none text-gray-800 dark:text-gray-100 max-w-[85%] leading-relaxed border border-gray-200 dark:border-white/5 shadow-sm">
-                             {msg.image && (
-                                <img src={msg.image} alt="Upload" className="max-h-48 rounded-lg mb-2" />
-                             )}
-                             {msg.text}
-                        </div>
-                    </div>
-                )}
-
-                {msg.role === 'model' && (
-                    <div className="flex gap-4">
-                        <div className="shrink-0 mt-1">
-                            <Logo size={32} />
-                        </div>
-                        <div className="flex-grow min-w-0 pt-1">
-                            <div className="text-gray-800 dark:text-gray-200 text-base leading-relaxed">
-                                {renderMessageContent(msg.text)}
-                                {isStreaming && msg.id === messages[messages.length-1].id && (
-                                    <span className="inline-block w-2 h-4 align-middle bg-indigo-500 ml-1 animate-pulse rounded-sm"></span>
-                                )}
-                            </div>
-                            {(!isStreaming || msg.text.length > 50) && (
-                                <div className="flex items-center gap-4 mt-2 fade-in">
-                                    <button onClick={() => onHumanizeRequest(msg.text)} className="p-1 text-gray-400 hover:text-[#4f46e5] dark:text-gray-500 dark:hover:text-[#a78bfa] transition-colors" title="Humanizar">
-                                        <Zap size={16} />
-                                    </button>
-                                    <button onClick={() => navigator.clipboard.writeText(msg.text)} className="p-1 text-gray-400 hover:text-black dark:text-gray-500 dark:hover:text-white transition-colors" title="Copiar">
-                                        <Copy size={16} />
-                                    </button>
+          {messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center pt-20">
+                  <Logo size={80} className="mb-6" />
+                  <h2 className="text-2xl font-bold mb-8">O que vamos criar hoje?</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
+                      <QuickAction 
+                        icon={MapPin} 
+                        text="Planeamento de Viagem: Como organizar um roteiro por Moçambique?" 
+                        onClick={handleSend} 
+                      />
+                      <QuickAction 
+                        icon={Code} 
+                        text="Aprender Python do Zero: Qual o melhor caminho para começar?" 
+                        onClick={handleSend} 
+                      />
+                      <QuickAction 
+                        icon={Lightbulb} 
+                        text="Dar Conselho: Como ter mais disciplina e sucesso nos estudos?" 
+                        onClick={handleSend} 
+                      />
+                      <QuickAction 
+                        icon={PenTool} 
+                        text="Aprender a Escrever: Como melhorar a minha escrita e gramática?" 
+                        onClick={handleSend} 
+                      />
+                  </div>
+              </div>
+          ) : (
+              messages.map((msg) => (
+                <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                    <div className={`flex gap-3 max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                        {msg.role === 'model' && <Logo size={32} className="shrink-0 mt-1" />}
+                        <div className={`px-5 py-3 rounded-2xl shadow-sm border ${msg.role === 'user' ? 'bg-white dark:bg-[#1f2937] border-gray-200 dark:border-white/5 rounded-tr-none' : 'bg-transparent border-transparent'}`}>
+                            {msg.image && (
+                                <div className="relative group mb-3">
+                                    <img src={msg.image} className="max-w-full rounded-lg shadow-md border dark:border-white/10" alt="IA Generated" />
+                                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                                        <a href={msg.image} download="iv4-image.png" className="p-2 bg-black/50 text-white rounded-full hover:bg-black/70"><Download size={16}/></a>
+                                        <button onClick={() => { setSelectedMedia({data: msg.image!, type: 'image/png', name: 'editar-imagem.png'}); setInput("Edite esta imagem para..."); }} className="p-2 bg-black/50 text-white rounded-full hover:bg-black/70"><Wand2 size={16}/></button>
+                                    </div>
                                 </div>
                             )}
+                            {/* Fix undefined variable 'text' by using 'msg.text' */}
+                            {renderMessageContent(msg.text)}
                         </div>
                     </div>
-                )}
-            </div>
-          ))}
-          
-          {isLoading && !isStreaming && (
-            <div className="flex gap-4">
-               <div className="shrink-0 mt-1 animate-pulse">
-                   <Logo size={32} />
-               </div>
-               <div className="flex flex-col justify-center mt-2">
-                   {isThinkingEnabled ? (
-                       <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400 animate-pulse flex items-center gap-2">
-                          <BrainCircuit size={14} />
-                          A analisar e raciocinar...
-                       </span>
-                   ) : (
-                       <div className="flex items-center gap-1">
-                           <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce"></span>
-                           <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-100"></span>
-                           <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce delay-200"></span>
-                       </div>
-                   )}
-               </div>
-            </div>
+                </div>
+              ))
           )}
+          {isLoading && !isStreaming && <div className="flex gap-4"><Logo size={32} className="animate-pulse" /><div className="h-8 w-12 bg-gray-200 dark:bg-gray-800 rounded-full animate-bounce"></div></div>}
           <div ref={messagesEndRef} className="h-4" />
         </div>
       </div>
 
-      <InputArea 
-            input={input} 
-            setInput={setInput} 
-            handleSend={handleSend} 
-            handleKeyDown={handleKeyDown} 
-            isLoading={isLoading} 
-            handleStop={handleStop}
-            handleFileSelect={handleFileSelect}
-            selectedMedia={selectedMedia}
-            setSelectedMedia={setSelectedMedia}
-            fileInputRef={fileInputRef}
-            isThinkingEnabled={isThinkingEnabled}
-            setIsThinkingEnabled={setIsThinkingEnabled}
-            isSearchEnabled={isSearchEnabled}
-            setIsSearchEnabled={setIsSearchEnabled}
-            className="fixed bottom-0 left-0 md:left-0 lg:left-0 right-0 bg-gray-50 dark:bg-[#030712] pt-4 pb-6 px-4 z-20 flex justify-center transition-colors duration-300" 
-        />
+      <div className="fixed bottom-0 left-0 right-0 p-4 md:ml-[280px] bg-gradient-to-t from-gray-50 dark:from-[#030712] via-gray-50 dark:via-[#030712] to-transparent">
+        <div className="max-w-3xl mx-auto flex flex-col gap-2">
+            <div className="flex gap-2 mb-1">
+                <ToggleBtn active={isThinkingEnabled} onClick={() => setIsThinkingEnabled(!isThinkingEnabled)} icon={BrainCircuit} label="Raciocínio" />
+                <ToggleBtn active={isSearchEnabled} onClick={() => setIsSearchEnabled(!isSearchEnabled)} icon={Globe} label="Pesquisa" />
+                <ToggleBtn active={isImageMode} onClick={() => setIsImageMode(!isImageMode)} icon={ImageIcon} label="Modo Imagem" color="text-purple-500" />
+                {isImageMode && (
+                    <select value={aspectRatio} onChange={(e) => setAspectRatio(e.target.value)} className="text-xs bg-white dark:bg-gray-800 border dark:border-white/10 rounded px-2 outline-none">
+                        <option value="1:1">1:1 (Quadrado)</option>
+                        <option value="16:9">16:9 (Cinema)</option>
+                        <option value="9:16">9:16 (Telemóvel)</option>
+                        <option value="4:3">4:3 (Clássico)</option>
+                    </select>
+                )}
+            </div>
+
+            <div className="bg-white dark:bg-[#1f2937] rounded-2xl shadow-xl border border-gray-200 dark:border-white/10 p-2 flex flex-col">
+                {selectedMedia && (
+                    <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg mb-2 self-start animate-fade-in">
+                        <img src={selectedMedia.data} className="w-10 h-10 rounded object-cover" />
+                        <span className="text-xs truncate max-w-[100px]">{selectedMedia.name}</span>
+                        <button onClick={() => setSelectedMedia(null)}><X size={14} /></button>
+                    </div>
+                )}
+                <div className="flex items-center gap-2">
+                    <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-indigo-500 transition-colors"><Paperclip size={20}/></button>
+                    <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
+                    <textarea 
+                        value={input} 
+                        onChange={(e) => setInput(e.target.value)} 
+                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
+                        placeholder={isImageMode ? "Descreva a imagem que deseja gerar..." : "Pergunte qualquer coisa..."}
+                        className="flex-grow bg-transparent p-2 resize-none outline-none max-h-32"
+                        rows={1}
+                    />
+                    <button onClick={() => handleSend()} disabled={isLoading || (!input.trim() && !selectedMedia)} className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 shadow-md">
+                        {isLoading ? <Square size={16} fill="white" /> : <Send size={20} />}
+                    </button>
+                </div>
+            </div>
+        </div>
+      </div>
     </div>
   );
 };
 
-// Reusable Input Component
-const InputArea = ({ 
-    input, setInput, handleSend, handleKeyDown, isLoading, handleStop, 
-    handleFileSelect, selectedMedia, setSelectedMedia, fileInputRef,
-    isThinkingEnabled, setIsThinkingEnabled, isSearchEnabled, setIsSearchEnabled,
-    className, placeholder, isCentered
-}: any) => {
-    return (
-        <div className={className}>
-            <div className={`max-w-3xl w-full ${!isCentered ? 'md:ml-[280px] md:mr-0 transition-all duration-300' : ''}`}> 
-                <div className={`bg-white dark:bg-[#1f2937] rounded-2xl p-2 border border-gray-200 dark:border-white/5 shadow-xl dark:shadow-2xl relative flex flex-col transition-all focus-within:border-indigo-500/50 dark:focus-within:border-white/10 ${isCentered ? 'min-h-[60px]' : ''}`}>
-                    
-                    {selectedMedia && (
-                        <div className="mx-2 mt-2 mb-1 p-2 bg-gray-100 dark:bg-[#374151] rounded-lg inline-flex items-center gap-2 self-start border border-gray-200 dark:border-transparent">
-                            {selectedMedia.type.includes('image') ? 
-                                <img src={selectedMedia.data} className="h-8 w-8 rounded object-cover" /> : 
-                                <FileText size={20} className="text-gray-600 dark:text-white"/>}
-                            <span className="text-xs text-gray-700 dark:text-gray-300 truncate max-w-[150px]">{selectedMedia.name}</span>
-                            <button onClick={() => setSelectedMedia(null)}><X size={14} className="text-gray-400 hover:text-red-500 dark:hover:text-white" /></button>
-                        </div>
-                    )}
+const QuickAction = ({ icon: Icon, text, onClick }: any) => (
+    <button onClick={() => onClick(text)} className="flex items-center gap-3 p-4 bg-white dark:bg-[#1f2937] border border-gray-200 dark:border-white/5 rounded-xl hover:border-indigo-500 transition-all text-left shadow-sm">
+        <Icon size={18} className="text-indigo-500 shrink-0" />
+        <span className="text-sm font-medium leading-snug">{text}</span>
+    </button>
+);
 
-                    <div className="flex items-center gap-2 px-2 pb-2">
-                        <button 
-                            onClick={() => setIsThinkingEnabled(!isThinkingEnabled)}
-                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${isThinkingEnabled ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 ring-1 ring-indigo-500/30' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 border border-transparent'}`}
-                            title="Ativar Raciocínio (Thinking Mode) para respostas mais complexas"
-                        >
-                            <BrainCircuit size={14} className={isThinkingEnabled ? "animate-pulse" : ""} />
-                            Raciocínio {isThinkingEnabled ? 'On' : 'Off'}
-                        </button>
-                         <button 
-                            onClick={() => setIsSearchEnabled(!isSearchEnabled)}
-                            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${isSearchEnabled ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'}`}
-                        >
-                            <Globe size={14} />
-                            Pesquisa {isSearchEnabled ? 'On' : 'Off'}
-                        </button>
-                    </div>
-
-                    <div className="flex items-center w-full">
-                         <textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder={placeholder || "Pergunte qualquer coisa..."}
-                            className="flex-grow bg-transparent border-none text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 px-4 py-3 focus:ring-0 resize-none min-h-[50px] max-h-[200px] outline-none"
-                            rows={1}
-                            style={{ height: 'auto', overflowY: 'hidden' }}
-                        />
-                        
-                         <input 
-                                type="file" 
-                                ref={fileInputRef} 
-                                onChange={handleFileSelect} 
-                                className="hidden" 
-                            />
-                        <button onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-400 hover:text-indigo-600 dark:hover:text-white transition-colors mr-1">
-                             <Paperclip size={20} />
-                        </button>
-
-                        {isLoading ? (
-                            <button onClick={handleStop} className="p-2 mr-2 rounded-lg bg-gray-200 dark:bg-white text-black hover:opacity-90">
-                                <Square size={16} fill="currentColor" />
-                            </button>
-                        ) : (
-                            <button 
-                                onClick={() => handleSend()} 
-                                disabled={!input.trim() && !selectedMedia}
-                                className="p-2 mr-2 rounded-lg bg-gray-100 dark:bg-[#374151] text-gray-400 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-[#4b5563] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                            >
-                                <Send size={20} />
-                            </button>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
+const ToggleBtn = ({ active, onClick, icon: Icon, label, color = "text-indigo-500" }: any) => (
+    <button onClick={onClick} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all border ${active ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-white/5'}`}>
+        <Icon size={14} className={active ? "text-white" : color} />
+        {label}
+    </button>
+);

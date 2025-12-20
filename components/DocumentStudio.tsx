@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Sparkles, Send, X, ArrowLeft, Download, FileCheck, CheckCircle, Loader2, Edit3, Save, Layers, Book, Briefcase, FileText, Mail, FileType, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered, Indent, Outdent, BoxSelect, FolderOpen, Image as ImageIcon, Frame, PlusCircle, Check, AlertTriangle } from 'lucide-react';
 import { GeminiService } from '../services/geminiService';
@@ -152,7 +153,8 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
     setIsGeneratingDoc(true);
     setErrorMsg(null);
     try {
-        const content = await GeminiService.generateDocument(metadata, true);
+        // Fix: generateDocument in GeminiService expects only one argument.
+        const content = await GeminiService.generateDocument(metadata);
         setDocumentContent(content);
         setMode('preview');
     } catch (e: any) {

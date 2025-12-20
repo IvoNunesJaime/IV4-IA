@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 // Configuração para garantir que o corpo seja processado corretamente
@@ -66,7 +67,7 @@ export default async function handler(req: any, res: any) {
     // Ação: CHAT (Conversa contínua)
     if (action === 'chat') {
       const chat = ai.chats.create({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-flash-preview",
         config: {
           systemInstruction: systemInstruction,
         },
@@ -76,8 +77,7 @@ export default async function handler(req: any, res: any) {
       let responseText = "";
 
       if (image) {
-        // Se houver imagem, precisamos extrair o base64
-        // Formato esperado: "data:image/png;base64,..."
+        // Se houver imagem, extraímos os dados base64
         const parts = image.split(',');
         const base64Data = parts[1] || parts[0]; 
         const mimeMatch = image.match(/:(.*?);/);
@@ -94,11 +94,13 @@ export default async function handler(req: any, res: any) {
             }
           ]
         });
+        // Correct usage: Access text via property .text
         responseText = response.text || "";
       } else {
         const response = await chat.sendMessage({
           message: message
         });
+        // Correct usage: Access text via property .text
         responseText = response.text || "";
       }
       
@@ -115,11 +117,12 @@ export default async function handler(req: any, res: any) {
       }
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-flash-preview",
         contents: prompt,
         config: config
       });
 
+      // Correct usage: Access text via property .text
       const responseText = response.text || "";
       
       res.status(200).json({ text: responseText });
