@@ -47,7 +47,6 @@ async function withRetry<T>(
     initialDelay = 2000
 ): Promise<T> {
     let lastError: any;
-    // Permitir mais tentativas se for erro de quota (429)
     let maxRetries = baseRetries;
     
     for (let i = 0; i < maxRetries; i++) {
@@ -57,7 +56,6 @@ async function withRetry<T>(
             lastError = error;
             const errorMsg = error.message || error.toString();
             
-            // Não faz retry para erros fatais (Auth, Bad Request, Safety)
             if (errorMsg.includes("API_KEY") || errorMsg.includes("400") || errorMsg.includes("SAFETY")) {
                 throw error;
             }
@@ -66,25 +64,21 @@ async function withRetry<T>(
             const isServerOverload = errorMsg.includes('503');
             const isNetworkError = errorMsg.includes('fetch failed');
 
-            // Se for Rate Limit, aumentamos as tentativas dinamicamente na primeira falha
             if (isRateLimit && maxRetries === baseRetries) {
-                maxRetries = 6; // Aumenta para 6 tentativas (aprox 60s total de espera) para tentar vencer o reset de 1 minuto
+                maxRetries = 6; 
             }
 
             if (isRateLimit || isServerOverload || isNetworkError) {
                 if (i === maxRetries - 1) break;
 
                 let waitTime = initialDelay * Math.pow(2, i);
-                // Cap no tempo de espera máximo (ex: 10s)
                 if (waitTime > 10000) waitTime = 10000;
                 
-                // Feedback visual se fornecido
                 if (onStatusUpdate) {
                     const friendly = getFriendlyErrorMessage(error);
                     onStatusUpdate(`\n\n_${friendly} Tentando novamente em ${waitTime/1000}s (${i+1}/${maxRetries})..._`);
                 }
 
-                console.log(`[IV4 IA] Retry ${i+1}/${maxRetries} após erro: ${errorMsg}`);
                 await wait(waitTime);
                 continue;
             }
@@ -97,7 +91,7 @@ async function withRetry<T>(
 
 export const GeminiService = {
   /**
-   * Chat com a IA com suporte a streaming, Thinking Mode e Google Search dinâmicos.
+   * Chat com a IA com suporte a streaming e nova Persona IV4 IA.
    */
   async chatStream(
       history: { role: string; parts: { text?: string; inlineData?: any }[] }[], 
@@ -112,7 +106,6 @@ export const GeminiService = {
 
     try {
       const ai = getAiClient();
-
       const now = new Date();
       const options: Intl.DateTimeFormatOptions = { 
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -121,21 +114,24 @@ export const GeminiService = {
       const currentFullDate = now.toLocaleDateString('pt-PT', options);
 
       const systemInstruction = `
-        Você é o IV4 IA, um assistente de inteligência artificial avançado.
+        Você é o IV4 IA, um assistente de inteligência artificial avançado criado por Ivo Nunes Jaime em Lichinga, Niassa, Moçambique.
         
-        == CONTEXTO ==
+        Seu propósito principal é ajudar pessoas com informações claras, conselhos práticos e apoio acessível — mesmo quando a internet está lenta.
+
+        == REGRAS DE COMPORTAMENTO (MODO ONLINE) ==
+        - Forneça respostas completas, atualizadas e contextualizadas.
+        - Mantenha o tom profissional, acolhedor e inspirador.
+        - Idioma: Português de Moçambique.
+        - SAUDAÇÕES: Responda a "Olá", "Oi", "Bom dia", etc., de forma natural e BREVE (ex: "Olá! Como posso ajudar hoje?"). NÃO recite sua biografia ou detalhes do criador em saudações simples. Só fale da sua origem se perguntado "quem é você?" ou "quem te criou?".
+        - Priorize conhecimento essencial para Moçambique: Saúde primária, higiene, educação, agricultura familiar e direitos cívicos.
+
+        == CONTEXTO TEMPORAL ==
         HOJE: ${currentFullDate}.
         LOCAL: Moçambique.
-        CRIADOR: Ivo Nunes Jaime (Lichinga, Niassa).
-
-        == DIRETRIZES ==
-        - Idioma: Português (Moçambique).
-        - Seja útil, académico e educado.
-        - COMPORTAMENTO: Responda a saudações (como "Olá", "Oi", "Bom dia") de forma natural e breve (ex: "Olá! Como posso ajudar?"). NÃO recite sua biografia ou detalhes do criador na saudação inicial, a menos que perguntado explicitamente "quem é você" ou "quem te criou".
-        - ${config?.isSearch ? 'Use Google Search se necessário.' : 'Use seu conhecimento interno.'}
+        
+        ${config?.isSearch ? 'Use Google Search se necessário.' : 'Use seu conhecimento interno.'}
       `;
 
-      // Configuração de Tools
       const tools: any[] = [];
       if (config?.isSearch) tools.push({ googleSearch: {} });
 
@@ -144,10 +140,7 @@ export const GeminiService = {
       };
 
       if (tools.length > 0) modelConfig.tools = tools;
-      
-      if (config?.isThinking) {
-        modelConfig.thinkingConfig = { thinkingBudget: 16384 }; 
-      }
+      if (config?.isThinking) modelConfig.thinkingConfig = { thinkingBudget: 16384 }; 
 
       const chat = ai.chats.create({
         model: 'gemini-2.5-flash',
@@ -157,14 +150,10 @@ export const GeminiService = {
 
       await withRetry(async () => {
           let responseStream;
-          
           if (mediaBase64 && mediaType) {
             const base64Data = mediaBase64.includes(',') ? mediaBase64.split(',')[1] : mediaBase64;
             responseStream = await chat.sendMessageStream({
-                message: [
-                    { text: message },
-                    { inlineData: { data: base64Data, mimeType: mediaType } }
-                ]
+                message: [{ text: message }, { inlineData: { data: base64Data, mimeType: mediaType } }]
             });
           } else {
             responseStream = await chat.sendMessageStream({ message: message });
@@ -179,22 +168,34 @@ export const GeminiService = {
             }
           }
       }, (statusMsg) => {
-          // Apenas mostra mensagens de "Tentando novamente" se já recebemos algo, 
-          // caso contrário a UI lida com o erro inicial
           if (hasReceivedContent) onChunk(statusMsg);
       });
 
     } catch (error: any) {
       console.error("Chat Stream Error:", error);
       
-      const friendlyMsg = getFriendlyErrorMessage(error);
+      // MODO OFFLINE FALLBACK (Como solicitado pelo usuário)
+      // Se a API falhar completamente, agimos como "IV4 IA (modo offline)"
+      const offlineFallback = (msg: string) => {
+          const lower = msg.toLowerCase();
+          let advice = "No momento estou com dificuldades de conexão aos meus servidores principais.";
+          
+          if (lower.includes("saúde") || lower.includes("doente") || lower.includes("febre") || lower.includes("diarreia")) {
+              advice = "Se houver febre ou mal-estar persistente, procure o centro de saúde mais próximo. Beba muita água filtrada ou fervida e mantenha o repouso.";
+          } else if (lower.includes("olá") || lower.includes("oi") || lower.includes("bom dia")) {
+              advice = "Olá! Estou a operar em modo básico devido a problemas de rede. Como posso ajudar com conselhos práticos?";
+          } else if (lower.includes("escola") || lower.includes("estudar") || lower.includes("trabalho")) {
+              advice = "Para estudar melhor, organize o seu tempo em blocos de 30 minutos e faça revisões constantes dos seus apontamentos.";
+          }
+
+          return `IV4 IA (modo offline): ${advice} Tente novamente em alguns minutos para obter uma resposta completa.`;
+      };
 
       if (!hasReceivedContent) {
-          // Se falhou antes de enviar qualquer coisa, lançamos o erro para a UI tratar (ex: remover mensagem vazia)
-          throw new Error(friendlyMsg);
+          onChunk(offlineFallback(message));
       } else {
-          // Se falhou no meio do stream, anexamos o erro ao final da mensagem existente
-          onChunk(`\n\n---\n**Erro:** ${friendlyMsg}`);
+          const friendlyMsg = getFriendlyErrorMessage(error);
+          onChunk(`\n\n---\n**Nota:** A conexão foi interrompida. Entrei em modo offline limitado.`);
       }
     }
   },
@@ -208,17 +209,10 @@ export const GeminiService = {
   ): Promise<string> {
     let fullText = "";
     try {
-        await this.chatStream(
-            history, 
-            message, 
-            (chunk) => { fullText += chunk; }, 
-            mediaBase64, 
-            mediaType, 
-            signal
-        );
+        await this.chatStream(history, message, (chunk) => { fullText += chunk; }, mediaBase64, mediaType, signal);
         return fullText;
     } catch (e: any) {
-        throw e; // Repassa erro tratado
+        throw e;
     }
   },
 
@@ -232,18 +226,13 @@ export const GeminiService = {
                 Objetivo: Extrair dados para gerar documento (Contexto: Moçambique).
                 Histórico: ${JSON.stringify(history)}
                 Nova Msg: "${currentMessage}"
-                
                 Extraia JSON: { "reply": "...", "extractedData": {...}, "isReady": boolean }
-                Tipos: TRABALHO_ESCOLAR, RELATORIO, CURRICULO, CARTA.
-                Dados necessários: Escola, Aluno(s), Tema, Classe, Cidade.
             `;
-
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
                 contents: prompt,
                 config: { responseMimeType: 'application/json' }
             });
-
             return JSON.parse(response.text || "{}");
         } catch (error: any) {
              throw new Error(getFriendlyErrorMessage(error));
@@ -269,24 +258,9 @@ export const GeminiService = {
   async generateDocument(data: any, addBorder: boolean = true): Promise<string> {
     return withRetry(async () => {
         const ai = getAiClient();
-        const prompt = `
-            Crie um documento HTML Académico Completo (Moçambique).
-            Dados: ${JSON.stringify(data)}.
-            ESTRUTURA:
-            1. Capa (Div .page com .page-border)
-            2. Contra-capa (Div .page com avaliação)
-            3. Índice
-            4. Conteúdo (Introdução, Desenvolvimento, Conclusão, Bibliografia).
-            
-            Use CSS Times New Roman, paginas A4 (21cm x 29.7cm).
-            Retorne APENAS HTML.
-        `;
-        
+        const prompt = `Crie um documento HTML Académico Completo (Moçambique). Dados: ${JSON.stringify(data)}. Retorne APENAS HTML.`;
         try {
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt
-            });
+            const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
             return (response.text || "").replace(/```html/g, '').replace(/```/g, '');
         } catch (error: any) {
             throw new Error(getFriendlyErrorMessage(error));
@@ -300,7 +274,7 @@ export const GeminiService = {
         try {
             const response = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
-                contents: `Reescreva como falante nativo de ${variant}: "${text}"`
+                contents: `Reescreva o seguinte texto para que pareça escrito por um humano nativo de ${variant}, mantendo o sentido original mas com fluidez natural: "${text}"`
             });
             return response.text || text;
         } catch (error: any) {
