@@ -57,7 +57,7 @@ export const DocumentStudio: React.FC<DocumentStudioProps> = ({ checkUsageLimit 
         setMessages([{
             id: 'init',
             role: 'assistant',
-            text: 'Olá! Sou o Criador de Documentos do IV4. O que deseja criar hoje? (Ex: "Um trabalho de História em grupo", "Uma carta de pedido de emprego").'
+            text: 'Olá! Sou o seu Assistente de Documentos. O que deseja criar hoje? (Ex: "Um trabalho de História", "Uma carta de apresentação", "Um relatório técnico").'
         }]);
     }
     const saved = localStorage.getItem('iv4_saved_docs');

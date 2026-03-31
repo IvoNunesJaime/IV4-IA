@@ -46,7 +46,9 @@ export const GeminiService = {
       // Always use gemini-3-flash-preview for chat and multimodal analysis
       const modelName = 'gemini-3-flash-preview';
 
-      const systemInstruction = `Você é o IV4 IA, criado por Ivo Nunes Jaime em Lichinga, Moçambique. Responda de forma útil e breve.`;
+      const systemInstruction = `Você é o IV4 IA, um assistente acadêmico avançado. 
+      Responda de forma extremamente rápida, útil e concisa. 
+      IMPORTANTE: Não mencione o nome do seu criador (Ivo Nunes Jaime) em suas respostas, a menos que o usuário pergunte explicitamente quem te criou ou algo relacionado.`;
 
       const modelConfig: any = { systemInstruction };
       if (config?.isSearch) modelConfig.tools = [{ googleSearch: {} }];
@@ -82,7 +84,7 @@ export const GeminiService = {
         const ai = getAiClient();
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: `Reescreva como nativo de ${variant}: "${text}"`
+            contents: `Reescreva o seguinte texto para que pareça escrito por um humano nativo de ${variant}. Mantenha o sentido original, mas use um tom natural e evite padrões robóticos: "${text}"`
         });
         return response.text || text;
     });
@@ -92,7 +94,16 @@ export const GeminiService = {
       const ai = getAiClient();
       const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
-          contents: `Analise para gerar documento: ${currentMessage}. Histórico: ${JSON.stringify(history)}`,
+          contents: `Você é um especialista em estruturação de documentos acadêmicos e profissionais. 
+          Analise a solicitação do usuário e o histórico para extrair detalhes necessários para gerar um documento completo.
+          
+          Solicitação: ${currentMessage}
+          Histórico: ${JSON.stringify(history)}
+          
+          Retorne um JSON com:
+          1. "extractedData": Objeto com campos como "topic", "subject", "author", "institution", "type" (trabalho, carta, etc).
+          2. "isReady": boolean indicando se temos informações suficientes para gerar um documento de alta qualidade.
+          3. "reply": Uma resposta curta e profissional pedindo o que falta ou confirmando que está pronto.`,
           config: { responseMimeType: "application/json" }
       });
       return JSON.parse(response.text || "{}");
@@ -102,7 +113,14 @@ export const GeminiService = {
       const ai = getAiClient();
       const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
-          contents: `Gere um HTML académico para: ${JSON.stringify(data)}`
+          contents: `Gere um documento acadêmico/profissional completo em HTML de alta qualidade baseado nestes dados: ${JSON.stringify(data)}.
+          
+          REQUISITOS:
+          1. Use uma estrutura profissional (Capa, Índice se necessário, Introdução, Desenvolvimento, Conclusão, Referências).
+          2. O HTML deve ser limpo, usando classes semânticas.
+          3. Cada página deve estar dentro de uma div com a classe "page".
+          4. Use um tom acadêmico formal e conteúdo rico e bem pesquisado.
+          5. Certifique-se de que o design seja elegante e pronto para impressão (A4).`
       });
       return response.text || "";
   },
